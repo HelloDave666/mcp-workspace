@@ -1,12 +1,14 @@
-﻿# Configuration Claude Desktop
+﻿# Configuration Claude Desktop - 3 Serveurs MCP
 
-Ce fichier contient la configuration MCP pour Claude Desktop.
+## Serveurs inclus :
+- arxiv-server : Recherche articles académiques arXiv
+- linkedin-strategic : Intelligence financement européen
+- project-context-manager : Gestion contexte multi-projets
 
 ## Installation :
-Copier ce fichier vers :
+Copier claude_desktop_config_3servers.json vers :
 - Windows: %APPDATA%\Claude Desktop\claude_desktop_config.json
 - Mac: ~/Library/Application Support/Claude/claude_desktop_config.json
 
-## Serveurs inclus :
-- arxiv-server : Recherche articles académiques
-- linkedin-strategic : Analyse réseau financement européen
+## Démarrage :
+Chaque serveur doit être démarré individuellement dans son terminal.

@@ -1,0 +1,19 @@
+﻿{
+  "mcpServers": {
+    "arxiv-server": {
+      "command": "node",
+      "args": ["C:/Users/davidarnaud/mcp-workspace/arxiv-server/build/index.js"],
+      "env": {}
+    },
+    "linkedin-strategic": {
+      "command": "node",
+      "args": ["C:/Users/davidarnaud/mcp-workspace/linkedin-strategic/build/index.js"],
+      "env": {}
+    },
+    "project-context-manager": {
+      "command": "node",
+      "args": ["C:/Users/davidarnaud/mcp-workspace/project-context-manager/build/index.js"],
+      "env": {}
+    }
+  }
+}
