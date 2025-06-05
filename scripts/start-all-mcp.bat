@@ -4,27 +4,28 @@ echo ========================================
 echo ?? D?MARRAGE ECOSYSTEM MCP COMPLET
 echo ========================================
 echo.
-echo Lancement des 3 serveurs MCP...
+echo Lancement des 3 serveurs MCP (fen?tres minimis?es)...
 echo.
 
-REM D?marrer chaque serveur dans sa propre fen?tre
-start "arXiv Server" "%~dp0start-arxiv.bat"
+REM D?marrer chaque serveur minimis? dans sa propre fen?tre
+start /min "arXiv Server" "%~dp0start-arxiv.bat"
 timeout /t 2 /nobreak >nul
 
-start "LinkedIn Strategic" "%~dp0start-linkedin.bat"
+start /min "LinkedIn Strategic" "%~dp0start-linkedin.bat"
 timeout /t 2 /nobreak >nul
 
-start "Project Manager" "%~dp0start-projects.bat"
+start /min "Project Manager" "%~dp0start-projects.bat"
 timeout /t 2 /nobreak >nul
 
-echo ? Les 3 serveurs MCP sont en cours de d?marrage...
+echo ? Les 3 serveurs MCP sont d?marr?s (minimis?s)
 echo.
-echo ?? Serveurs lanc?s :
+echo ?? Serveurs lanc?s en arri?re-plan :
 echo   - ?? arXiv Server (Recherche acad?mique)
 echo   - ?? LinkedIn Strategic (Financement europ?en)
 echo   - ?? Project Context Manager (Gestion multi-projets)
 echo.
-echo ?? Vous pouvez maintenant utiliser Claude Desktop
-echo    avec les 3 serveurs MCP op?rationnels !
+echo ?? Serveurs dans la barre des t?ches - Claude Desktop pr?t !
 echo.
-pause
+echo Cette fen?tre va se fermer dans 5 secondes...
+timeout /t 5 /nobreak >nul
+exit
