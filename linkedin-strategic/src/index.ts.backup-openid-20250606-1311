@@ -35,9 +35,9 @@ const LINKEDIN_CONFIG = {
   clientId: '78mjs116ddpk1k',
   clientSecret: 'WPL_AP1.USotCJnmRBxiKaB6.Wxr5pA==',
   redirectUri: 'https://www.linkedin.com/developers/tools/oauth/redirect',
-  accessToken: 'AQWQ6MvpCkmdhmPtblbpWSPdOcvpfmQZ9shH4EfIy35r_poPUgl8pQFRI4c0xTLTts_JiucL1CDeCkuY0j1Me69qspkt4yskUSnwggw5lE-ZI7oZH3RqJ56CI386zw7hoHnr2VbH3Qs_KTuI3c4S6nHmjNyvs7p2kMTZLpMI2ndU6oZrfR1k19GGbykZuACTjYiOatQ2VjTHcQ6Qf3HhP2ZI6vmMx9BfVFYD-9LSokbkn4qC5do7hytfEvRUozzGZCX3-_rz2ZzVJU4734Ja_1dWXwaoIUcjNNRjfuqxKjv82CcwspeU2yfzDeiGX8BMTnU_y6yKghpVh2N3CIATWUnmeq2s4A',
+  accessToken: 'AQWPvqiwcGDmzjQuhX5eQLgQMrUj2nng_izkE6TNSpQBrEGdRecbBSwvOB9LZVO_0l2o8Zbti0h-o2q7k52RtW8hIUHwgD1gRaBVmXaXtaXOJJG5PhuMzG2YWU0TfEMY-0Sb8xS_ut9Iv11dGcDZDbDwkbwO2ys1938plqJkTrj2M7Vd9T93GEGRellf6hjT2oDHj6IKZl_lmOwUYRCmfu3L3lVw6CJmv4a9NZKX_tOo-MKJT4sR9eHODe3sXd3pA7r4h2wr8tLLBsi4QJswtK5AH_nUdWTc5S0AnGCxzJcIfrhxFzVMAPMyKiayhU2XwWWuji6f1eRXA1nZo93cM4JXIxck1g',
   tokenFile: path.join(process.cwd(), 'linkedin-token.json'),
-  tokenExpires: 1754392384000 // Expires le 4 août 2025
+  tokenExpires: Date.now() + (60 * 24 * 60 * 60 * 1000) // Expires dans 60 jours (nouveau token frais)
 };
 
 // Base de données des programmes européens (enrichie)
@@ -172,8 +172,8 @@ async function saveAccessToken(accessToken: string, expiresIn: number): Promise<
 }
 
 async function getLinkedInAuthUrl(): Promise<string> {
-  // Utiliser les nouveaux scopes OpenID Connect selon la documentation
-  const scopes = ['openid', 'profile', 'email'].join('%20');
+  // Utiliser seulement les scopes disponibles selon la documentation
+  const scopes = ['r_liteprofile', 'r_emailaddress'].join('%20');
   
   const authUrl = `https://www.linkedin.com/oauth/v2/authorization?` +
     `response_type=code&` +
@@ -182,11 +182,11 @@ async function getLinkedInAuthUrl(): Promise<string> {
     `scope=${scopes}&` +
     `state=${Date.now()}`;
   
-  console.error('[AUTH] 🔗 URL générée avec scopes OpenID Connect:', scopes);
+  console.error('[AUTH] 🔗 URL générée avec scopes:', scopes);
   return authUrl;
 }
 
-// Nouvelle fonction pour tester le token directement avec OpenID Connect
+// Nouvelle fonction pour tester le token directement
 async function testTokenDirectly(): Promise<{ valid: boolean; error?: string; data?: any }> {
   const accessToken = await loadAccessToken();
   if (!accessToken) {
@@ -194,21 +194,19 @@ async function testTokenDirectly(): Promise<{ valid: boolean; error?: string; da
   }
   
   try {
-    console.error('[TEST] 🧪 Test direct du token LinkedIn avec OpenID Connect...');
-    // Utiliser le nouvel endpoint OpenID Connect
-    const response = await axios.get('https://api.linkedin.com/v2/userinfo', {
+    console.error('[TEST] 🧪 Test direct du token LinkedIn...');
+    const response = await axios.get('https://api.linkedin.com/v2/me', {
       headers: {
-        'Authorization': `Bearer ${accessToken}`
+        'Authorization': `Bearer ${accessToken}`,
+        'X-Restli-Protocol-Version': '2.0.0'
       },
       timeout: 10000 // 10 secondes timeout
     });
     
-    console.error('[TEST] ✅ Token valide avec OpenID Connect !');
-    console.error('[TEST] 📊 Données reçues:', JSON.stringify(response.data, null, 2));
+    console.error('[TEST] ✅ Token valide !');
     return { valid: true, data: response.data };
   } catch (error: any) {
     console.error('[TEST] ❌ Token invalide:', error.response?.status, error.message);
-    console.error('[TEST] 📊 Détails erreur:', error.response?.data);
     return { 
       valid: false, 
       error: `Status ${error.response?.status}: ${error.response?.data?.message || error.message}` 
@@ -243,7 +241,7 @@ async function exchangeCodeForToken(authCode: string): Promise<string | null> {
   }
 }
 
-// APIs LinkedIn réelles avec OpenID Connect
+// APIs LinkedIn réelles avec token direct
 async function getMyProfile(): Promise<any> {
   const accessToken = await loadAccessToken();
   if (!accessToken) {
@@ -251,15 +249,15 @@ async function getMyProfile(): Promise<any> {
   }
   
   try {
-    console.error('[API] 🔍 Récupération profil LinkedIn avec OpenID Connect /v2/userinfo...');
-    // Utiliser le nouvel endpoint OpenID Connect
-    const response = await axios.get('https://api.linkedin.com/v2/userinfo', {
+    console.error('[API] 🔍 Récupération profil LinkedIn avec endpoint /v2/me...');
+    const response = await axios.get('https://api.linkedin.com/v2/me', {
       headers: {
-        'Authorization': `Bearer ${accessToken}`
+        'Authorization': `Bearer ${accessToken}`,
+        'X-Restli-Protocol-Version': '2.0.0'
       }
     });
     
-    console.error('[API] ✅ Profil LinkedIn récupéré avec succès via OpenID Connect');
+    console.error('[API] ✅ Profil LinkedIn récupéré avec succès');
     console.error('[API] 📊 Données reçues:', JSON.stringify(response.data, null, 2));
     return response.data;
   } catch (error: any) {
@@ -272,7 +270,7 @@ async function getMyProfile(): Promise<any> {
     if (error.response?.status === 401) {
       throw new Error('Token LinkedIn expiré ou invalide - Status 401');
     } else if (error.response?.status === 403) {
-      throw new Error('Permissions insuffisantes - Générez un nouveau token avec scopes OpenID Connect');
+      throw new Error('Permissions insuffisantes - Vérifiez les scopes de votre app LinkedIn');
     } else if (error.response?.status === 429) {
       throw new Error('Rate limit dépassé - Attendez avant de refaire des requêtes');
     }
@@ -280,24 +278,51 @@ async function getMyProfile(): Promise<any> {
   }
 }
 
-// Analyses spécialisées basées sur le profil authentifié avec OpenID Connect
+async function getMyEmail(): Promise<string> {
+  const accessToken = await loadAccessToken();
+  if (!accessToken) {
+    throw new Error('Token LinkedIn requis');
+  }
+  
+  try {
+    console.error('[EMAIL] 🔍 Récupération email LinkedIn...');
+    const response = await axios.get('https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'X-Restli-Protocol-Version': '2.0.0'
+      }
+    });
+    
+    const email = response.data.elements?.[0]?.['handle~']?.emailAddress || 'Email non disponible';
+    console.error('[EMAIL] ✅ Email récupéré:', email);
+    return email;
+  } catch (error: any) {
+    console.error('[EMAIL] ❌ Erreur récupération email:');
+    console.error('[EMAIL] Status:', error.response?.status);
+    console.error('[EMAIL] Data:', error.response?.data);
+    
+    if (error.response?.status === 403) {
+      return 'Email non autorisé (permission r_emailaddress requise)';
+    }
+    return 'Email non accessible';
+  }
+}
+
+// Analyses spécialisées basées sur le profil authentifié
 async function analyzeCRAFTNetworkWithProfile(): Promise<string> {
   try {
     const profile = await getMyProfile();
+    const email = await getMyEmail();
     
     // Analyser le profil pour CRAFT
     const profileAnalysis = analyzeProfileForCRAFT(profile);
     
     return `**🎯 ANALYSE CRAFT - Basée sur votre profil LinkedIn authentifié**
 
-👤 **VOTRE PROFIL CONNECTÉ (OpenID Connect) :**
-- **Nom :** ${profile.name || `${profile.given_name} ${profile.family_name}`}
-- **Prénom :** ${profile.given_name}
-- **Nom de famille :** ${profile.family_name}
-- **Email :** ${profile.email || 'Non disponible'}
-- **Email vérifié :** ${profile.email_verified ? 'Oui' : 'Non vérifié'}
-- **Localisation :** ${profile.locale || 'Non spécifiée'}
-- **LinkedIn ID :** ${profile.sub}
+👤 **VOTRE PROFIL CONNECTÉ :**
+- **Nom :** ${profile.firstName} ${profile.lastName}
+- **Localisation :** ${profile.localizedLastName || 'Non spécifiée'}
+- **Email :** ${email}
 
 🔍 **ANALYSE POUR LE PROJET CRAFT :**
 ${profileAnalysis}
@@ -342,13 +367,12 @@ ${profileAnalysis}
 
 Pour analyser votre profil CRAFT, vous devez d'abord vous authentifier.
 
-🔗 **Visitez cette URL (OpenID Connect) :**
+🔗 **Visitez cette URL :**
 ${authUrl}
 
-📋 **Scopes requis :** openid + profile + email
 📋 **Puis utilisez l'outil linkedin_oauth_callback avec le code reçu**
 
-⚡ **Alternative :** Générez un nouveau token avec les scopes OpenID Connect.`;
+⚡ **Alternative :** Vérifiez que votre token direct est bien configuré dans le serveur.`;
     }
     
     throw error;
@@ -500,19 +524,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           if (testResult.valid) {
             try {
               const profile = testResult.data;
+              const email = await getMyEmail();
               
               return {
                 content: [{
                   type: "text",
-                  text: `✅ **AUTHENTIFICATION LINKEDIN ACTIVE (OpenID Connect)**
+                  text: `✅ **AUTHENTIFICATION LINKEDIN ACTIVE**
 
-👤 **Profil connecté :** ${profile.name || `${profile.given_name} ${profile.family_name}`}
-📧 **Email :** ${profile.email || 'Non disponible'}
-📧 **Email vérifié :** ${profile.email_verified ? 'Oui' : 'Non vérifié'}
+👤 **Profil connecté :** ${profile.firstName} ${profile.lastName}
+📧 **Email :** ${email}
 🔑 **Token :** Valide (expire dans ${Math.floor((LINKEDIN_CONFIG.tokenExpires - Date.now()) / (1000 * 60 * 60 * 24))} jours)
-📊 **Permissions :** openid + profile + email
-🆔 **LinkedIn ID :** ${profile.sub}
-🌍 **Locale :** ${profile.locale || 'Non spécifié'}
+📊 **Permissions :** profile + email
+🆔 **LinkedIn ID :** ${profile.id}
 
 🚀 **STATUT :** Prêt pour l'analyse CRAFT avec vos données LinkedIn réelles !
 
@@ -528,12 +551,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   type: "text",
                   text: `✅ **AUTHENTIFICATION LINKEDIN PARTIELLE**
 
-👤 **Profil connecté :** ${testResult.data.name || `${testResult.data.given_name} ${testResult.data.family_name}`}
+👤 **Profil connecté :** ${testResult.data.firstName} ${testResult.data.lastName}
 🔑 **Token :** Valide pour le profil
-📧 **Email :** ${testResult.data.email || 'Non accessible'}
-🆔 **LinkedIn ID :** ${testResult.data.sub}
+📧 **Email :** Non accessible (permission manquante)
+🆔 **LinkedIn ID :** ${testResult.data.id}
 
-⚠️ **Note :** Authentification OpenID Connect réussie
+⚠️ **Note :** Email non disponible mais profil accessible
 🚀 **Fonctionnalités disponibles :** Analyse CRAFT basée sur le profil`
                 }]
               };
@@ -550,8 +573,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 💡 **Solutions :**
 1. **Générer nouveau token** → https://developer.linkedin.com/
-2. **Vérifier permissions** → openid + profile + email (OpenID Connect)
-3. **Vérifier app status** → "Sign In with LinkedIn using OpenID Connect" activé ?
+2. **Vérifier permissions** → r_liteprofile + r_emailaddress
+3. **Vérifier app status** → Application approuvée ?
 
 🔧 **Debug info :** Token de ${token.length} caractères, expire dans ${Math.floor((LINKEDIN_CONFIG.tokenExpires - Date.now()) / (1000 * 60 * 60 * 24))} jours`
               }]
@@ -569,10 +592,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 🔗 **Visitez cette URL pour vous authentifier :**
 ${authUrl}
 
-📋 **Scopes demandés :** openid + profile + email (OpenID Connect)
+📋 **Scopes demandés :** r_liteprofile + r_emailaddress
 📋 **Ensuite, utilisez l'outil 'linkedin_oauth_callback' avec le code reçu**
 
-⚡ **Alternative :** Générez un nouveau token direct via LinkedIn Developer avec les scopes OpenID Connect.`
+⚡ **Alternative :** Générez un nouveau token direct via LinkedIn Developer et mettez-le dans la configuration du serveur.`
             }]
           };
         }
@@ -596,14 +619,22 @@ ${authUrl}
         // Test du token
         const testResult = await testTokenDirectly();
         
-        // Analyser les scopes avec OpenID Connect
-        let scopeAnalysis: any = {};
-        if (testResult.valid && testResult.data) {
-          scopeAnalysis = {
-            openid: testResult.data.sub ? 'OK' : 'MISSING',
-            profile: testResult.data.name ? 'OK' : 'MISSING',
-            email: testResult.data.email ? 'OK' : 'MISSING'
-          };
+        // Test des scopes individuels
+        let scopeTests: any = {};
+        if (testResult.valid) {
+          // Test email scope
+          try {
+            const emailTest = await axios.get('https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))', {
+              headers: {
+                'Authorization': `Bearer ${LINKEDIN_CONFIG.accessToken}`,
+                'X-Restli-Protocol-Version': '2.0.0'
+              },
+              timeout: 5000
+            });
+            scopeTests.emailScope = 'OK';
+          } catch (e: any) {
+            scopeTests.emailScope = `ERROR: ${e.response?.status}`;
+          }
         }
         
         return {
@@ -624,20 +655,19 @@ ${authUrl}
 - Erreur: ${testResult.error || 'Aucune'}
 - Données reçues: ${testResult.valid ? '✅ Profil récupéré' : '❌'}
 
-🎯 **ANALYSE SCOPES OpenID Connect :**
-- openid: ${scopeAnalysis.openid || 'Non testé'}
-- profile: ${scopeAnalysis.profile || 'Non testé'}
-- email: ${scopeAnalysis.email || 'Non testé'}
+🎯 **TEST SCOPES :**
+- r_liteprofile: ${testResult.valid ? '✅' : '❌'}
+- r_emailaddress: ${scopeTests.emailScope || 'Non testé'}
 
 💡 **RECOMMANDATIONS :**
 ${testResult.valid ? 
-  '✅ Token OpenID Connect fonctionnel - Authentification réussie' :
-  '❌ Token invalide - Générez un nouveau token avec scopes OpenID Connect (openid, profile, email)'
+  '✅ Token fonctionnel - Le problème vient peut-être des fonctions complexes' :
+  '❌ Token invalide - Générez un nouveau token sur LinkedIn Developer'
 }
 
 🔧 **DONNÉES TECHNIQUES :**
 \`\`\`json
-${JSON.stringify({ config: configInfo, test: testResult, scopes: scopeAnalysis }, null, 2)}
+${JSON.stringify({ config: configInfo, test: testResult, scopes: scopeTests }, null, 2)}
 \`\`\``
           }]
         };
@@ -654,9 +684,9 @@ ${JSON.stringify({ config: configInfo, test: testResult, scopes: scopeAnalysis }
               type: "text",
               text: `🎉 **AUTHENTIFICATION LINKEDIN RÉUSSIE !**
 
-👤 **Profil connecté :** ${profile.name || `${profile.given_name} ${profile.family_name}`}
+👤 **Profil connecté :** ${profile.firstName} ${profile.lastName}
 ✅ **Token sauvegardé** dans fichier et configuration
-📊 **Accès activé :** openid + profile + email (OpenID Connect)
+📊 **Accès activé :** profile + email
 
 🚀 **Prêt pour l'analyse CRAFT avec vos données LinkedIn réelles !**`
             }]
@@ -697,7 +727,7 @@ Le code d'autorisation semble invalide. Veuillez :
             type: "text",
             text: `🇪🇺 **ANALYSE ${program?.name.toUpperCase()} - Profil Authentifié**
 
-👤 **Analyse pour :** ${profile.name || `${profile.given_name} ${profile.family_name}`}
+👤 **Analyse pour :** ${profile.firstName} ${profile.lastName}
 📊 **Programme :** ${program?.name} (${program?.budget})
 🌍 **Scope :** ${geographic_scope}
 
@@ -725,7 +755,7 @@ Le code d'autorisation semble invalide. Veuillez :
             type: "text",
             text: `🎯 **CONNEXIONS STRATÉGIQUES - ${target_role.toUpperCase()} ${sector.toUpperCase()}**
 
-👤 **Analyse personnalisée pour :** ${profile.name || `${profile.given_name} ${profile.family_name}`}
+👤 **Analyse personnalisée pour :** ${profile.firstName} ${profile.lastName}
 
 📊 **RECHERCHE BASÉE SUR VOTRE PROFIL :**
 - Secteur d'expertise détecté dans votre profil
@@ -773,7 +803,7 @@ Le code d'autorisation semble invalide. Veuillez :
             type: "text",
             text: `📊 **PATTERNS DE SUCCÈS ${program.toUpperCase()} - Analyse Personnalisée**
 
-👤 **Pour :** ${profile.name || `${profile.given_name} ${profile.family_name}`}
+👤 **Pour :** ${profile.firstName} ${profile.lastName}
 
 🏆 **VOTRE PROFIL vs PATTERNS GAGNANTS :**
 ✅ **Expertise cross-sectorielle** (détectée dans votre profil)
@@ -817,11 +847,10 @@ Profil rare à l'intersection des domaines CRAFT prioritaires`
 // Fonctions utilitaires
 async function searchPersonalizedFundingOpportunities(domains: string[], programType: string, profile: any): Promise<string> {
   const currentYear = new Date().getFullYear();
-  const profileName = profile.name || `${profile.given_name} ${profile.family_name}`;
   
   return `**🔍 OPPORTUNITÉS PERSONNALISÉES - ${programType.toUpperCase()}**
 
-👤 **Analyse pour :** ${profileName}
+👤 **Analyse pour :** ${profile.firstName} ${profile.lastName}
 🎯 **Domaines :** ${domains.join(' + ')}
 📅 **Période :** ${currentYear}
 
@@ -845,7 +874,7 @@ async function searchPersonalizedFundingOpportunities(domains: string[], program
 - **Deadline :** Avril 2025
 - **Vos atouts :** Convergence technologique/culturelle
 
-🎯 **ACTIONS IMMÉDIATES pour ${profile.given_name || 'vous'} :**
+🎯 **ACTIONS IMMÉDIATES pour ${profile.firstName} :**
 1. **Préparer dossier CRAFT** - positioning unique validé
 2. **Développer consortium européen** - leveraging votre réseau
 3. **Positionner comme coordinateur** - expertise reconnue
@@ -860,15 +889,15 @@ Profil rare à l'intersection des priorités européennes 2025-2027`;
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('🇪🇺 LinkedIn Strategic Network Analyzer v2.1 - OpenID Connect READY!');
+  console.error('🇪🇺 LinkedIn Strategic Network Analyzer v2.1 - SYNTAX FIXED READY!');
   
   // Test du token au démarrage
   const token = await loadAccessToken();
   if (token) {
-    console.error('[STARTUP] ✅ Token LinkedIn détecté et prêt (OpenID Connect)');
+    console.error('[STARTUP] ✅ Token LinkedIn détecté et prêt');
     console.error('[STARTUP] 📅 Expire dans', Math.floor((LINKEDIN_CONFIG.tokenExpires - Date.now()) / (1000 * 60 * 60 * 24)), 'jours');
   } else {
-    console.error('[STARTUP] ⚠️ Aucun token LinkedIn - authentification OpenID Connect requise');
+    console.error('[STARTUP] ⚠️ Aucun token LinkedIn - authentification requise');
   }
 }
 
