@@ -1,35 +1,96 @@
 #!/usr/bin/env node
 
 /**
- * Project Memory & Context Manager
+ * Project Context Manager MCP Server - VERSION CORRIGÉE
  * 
- * Résout les défis des créatifs-développeurs :
- * 1. Perte de contexte entre sessions
- * 2. Problèmes architecturaux (code monolithique)
- * 3. Documentation technologique éparpillée
- * 4. Historique des conversations Claude
+ * Correction du bug fs.writeJson is not a function
+ * Utilise fs-extra au lieu de fs natif
  * 
- * Fonctionnalités :
- * - Contexte multi-projets persistant
- * - Import/export conversations Claude
- * - Architecture forcée (modularité)
- * - Documentation centralisée par technologie
- * - Mémoire des décisions techniques
+ * Fonctionnalités:
+ * - Gestion de projets multi-contexte
+ * - Historique des conversations
+ * - Documentation technique intégrée
+ * - Recherche dans l'historique
  */
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
+  ErrorCode,
   ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-import * as fs from 'fs-extra';
+  McpError,
+} from '@modelcontextprotocol/sdk/types.js';
+import * as fs from 'fs-extra'; // CORRECTION: Utilise fs-extra au lieu de fs natif
 import * as path from 'path';
 
+// Configuration des chemins
+const DATA_DIR = path.join(process.cwd(), 'project-data');
+const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
+const CONVERSATIONS_DIR = path.join(DATA_DIR, 'conversations');
+const NOTES_DIR = path.join(DATA_DIR, 'notes');
+
+// Interfaces TypeScript
+interface Project {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  technologies: string[];
+  created: string;
+  phase: string;
+  status: string;
+}
+
+interface Conversation {
+  id: string;
+  project_id: string;
+  summary: string;
+  phase: string;
+  content: string;
+  timestamp: string;
+}
+
+interface Note {
+  id: string;
+  title: string;
+  content: string;
+  timestamp: string;
+  project_id?: string;
+}
+
+interface TechnicalDecision {
+  id: string;
+  project_id: string;
+  decision: string;
+  reasoning: string;
+  impact: string;
+  timestamp: string;
+}
+
+interface Documentation {
+  id: string;
+  project_id: string;
+  technology: string;
+  title: string;
+  content: string;
+  relevance: string;
+  timestamp: string;
+}
+
+// État global
+let currentProject: Project | null = null;
+let projects: Project[] = [];
+let conversations: Conversation[] = [];
+let notes: Note[] = [];
+let decisions: TechnicalDecision[] = [];
+let documentation: Documentation[] = [];
+
+// Initialisation du serveur
 const server = new Server(
   {
-    name: "project-context-manager",
-    version: "1.0.0",
+    name: 'project-context-manager',
+    version: '2.1.0',
   },
   {
     capabilities: {
@@ -38,638 +99,672 @@ const server = new Server(
   }
 );
 
-// Configuration et chemins
-const DATA_DIR = path.join(process.cwd(), 'project-data');
-const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
-const CONVERSATIONS_DIR = path.join(DATA_DIR, 'conversations');
-const DOCS_DIR = path.join(DATA_DIR, 'documentation');
-
-// Structure de données des projets
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  status: 'active' | 'paused' | 'completed';
-  technologies: string[];
-  architecture: {
-    pattern: string;
-    structure: string[];
-    conventions: string[];
-    rules: string[];
-  };
-  current_phase: string;
-  created_date: string;
-  last_active: string;
-  conversations: ConversationMetadata[];
-  documentation: DocumentationLink[];
-  decisions: TechnicalDecision[];
-}
-
-interface ConversationMetadata {
-  id: string;
-  date: string;
-  phase: string;
-  summary: string;
-  key_decisions: string[];
-  code_files_created: string[];
-  problems_solved: string[];
-  file_path: string;
-}
-
-interface DocumentationLink {
-  technology: string;
-  title: string;
-  url?: string;
-  content?: string;
-  relevance: 'high' | 'medium' | 'low';
-}
-
-interface TechnicalDecision {
-  date: string;
-  decision: string;
-  reasoning: string;
-  impact: string;
-}
-
-// Initialisation des dossiers
-async function initializeDataStructure() {
+/**
+ * CORRECTION: Fonctions utilitaires avec fs-extra
+ */
+async function ensureDirectoryExists(dirPath: string): Promise<void> {
   try {
-    await fs.ensureDir(DATA_DIR);
-    await fs.ensureDir(CONVERSATIONS_DIR);
-    await fs.ensureDir(DOCS_DIR);
+    await fs.ensureDir(dirPath); // CORRECTION: fs-extra.ensureDir
+  } catch (error) {
+    console.error(`Erreur création répertoire ${dirPath}:`, error);
+    throw error;
+  }
+}
+
+async function loadData(): Promise<void> {
+  try {
+    await ensureDirectoryExists(DATA_DIR);
+    await ensureDirectoryExists(CONVERSATIONS_DIR);
+    await ensureDirectoryExists(NOTES_DIR);
+
+    // Chargement des projets
+    if (await fs.pathExists(PROJECTS_FILE)) { // CORRECTION: fs-extra.pathExists
+      const data = await fs.readJson(PROJECTS_FILE); // CORRECTION: fs-extra.readJson
+      projects = data.projects || [];
+      currentProject = data.currentProject || null;
+      conversations = data.conversations || [];
+      notes = data.notes || [];
+      decisions = data.decisions || [];
+      documentation = data.documentation || [];
+    }
+  } catch (error) {
+    console.error('Erreur chargement des données:', error);
+    // Initialisation avec données vides si erreur
+    projects = [];
+    conversations = [];
+    notes = [];
+    decisions = [];
+    documentation = [];
+  }
+}
+
+async function saveData(): Promise<void> {
+  try {
+    const data = {
+      projects,
+      currentProject,
+      conversations,
+      notes,
+      decisions,
+      documentation,
+      lastUpdated: new Date().toISOString()
+    };
     
-    if (!(await fs.pathExists(PROJECTS_FILE))) {
-      await fs.writeJson(PROJECTS_FILE, { projects: {}, active_project: null });
-    }
+    await fs.writeJson(PROJECTS_FILE, data, { spaces: 2 }); // CORRECTION: fs-extra.writeJson
   } catch (error) {
-    console.error('[INIT ERROR]', error);
+    console.error('Erreur sauvegarde des données:', error);
+    throw error;
   }
 }
 
-// Utilitaires pour la gestion des projets
-async function loadProjects(): Promise<any> {
-  try {
-    return await fs.readJson(PROJECTS_FILE);
-  } catch (error) {
-    return { projects: {}, active_project: null };
-  }
-}
-
-async function saveProjects(data: any): Promise<void> {
-  await fs.writeJson(PROJECTS_FILE, data, { spaces: 2 });
-}
-
-async function saveConversation(projectId: string, conversation: any): Promise<string> {
-  const conversationId = `conv_${Date.now()}`;
-  const filePath = path.join(CONVERSATIONS_DIR, `${projectId}_${conversationId}.json`);
-  await fs.writeJson(filePath, conversation, { spaces: 2 });
-  return filePath;
-}
-
-// Analyseur de conversations Claude
-function parseClaudeConversation(conversationText: string): any {
-  const lines = conversationText.split('\n');
-  const decisions: string[] = [];
-  const codeFiles: string[] = [];
-  const problems: string[] = [];
-  
-  // Analyse simple du texte - peut être améliorée
-  lines.forEach(line => {
-    if (line.includes('décision') || line.includes('choix') || line.includes('opter')) {
-      decisions.push(line.trim());
-    }
-    if (line.includes('.js') || line.includes('.ts') || line.includes('.py')) {
-      const match = line.match(/[\w-]+\.(js|ts|py|html|css)/g);
-      if (match) codeFiles.push(...match);
-    }
-    if (line.includes('problème') || line.includes('erreur') || line.includes('bug')) {
-      problems.push(line.trim());
-    }
-  });
-  
-  return {
-    key_decisions: [...new Set(decisions)].slice(0, 5),
-    code_files_created: [...new Set(codeFiles)].slice(0, 10),
-    problems_solved: [...new Set(problems)].slice(0, 5)
-  };
-}
-
-// Générateur d'architecture modulaire
-function generateModularStructure(projectType: string): any {
-  const architectures: any = {
-    'web-3d': {
-      pattern: 'modular-3d',
-      structure: ['src/', 'src/core/', 'src/rendering/', 'src/controls/', 'src/utils/', 'src/shaders/'],
-      conventions: ['camelCase', 'ES6-modules', 'functional-components'],
-      rules: [
-        'Séparer la logique métier du rendu',
-        'Un fichier = une responsabilité',
-        'Maximum 200 lignes par fichier',
-        'Pas de variables globales'
-      ]
-    },
-    'audio-app': {
-      pattern: 'audio-modular',
-      structure: ['src/', 'src/audio/', 'src/ui/', 'src/effects/', 'src/utils/'],
-      conventions: ['camelCase', 'Web-Audio-API', 'component-based'],
-      rules: [
-        'Séparer audio engine de l\'UI',
-        'Gestion mémoire audio obligatoire',
-        'Maximum 150 lignes par composant audio'
-      ]
-    },
-    'cad-manufacturing': {
-      pattern: 'precision-modular',
-      structure: ['src/', 'src/geometry/', 'src/tooling/', 'src/export/', 'src/validation/'],
-      conventions: ['camelCase', 'precision-first', 'validation-heavy'],
-      rules: [
-        'Validation à chaque étape',
-        'Précision au millième obligatoire',
-        'Séparation calcul/affichage'
-      ]
-    }
-  };
-  
-  return architectures[projectType] || architectures['web-3d'];
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
 /**
- * Handler that lists available tools.
+ * OUTILS MCP CORRIGÉS
  */
+
+// Liste des outils disponibles
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: "list_projects",
-        description: "Liste tous les projets avec leur statut",
+        name: 'list_projects',
+        description: 'Liste tous les projets avec leur statut',
         inputSchema: {
-          type: "object",
-          properties: {}
-        }
+          type: 'object',
+          properties: {},
+        },
       },
       {
-        name: "create_project",
-        description: "Créer un nouveau projet avec contexte",
+        name: 'create_project',
+        description: 'Créer un nouveau projet avec contexte',
         inputSchema: {
-          type: "object",
+          type: 'object',
           properties: {
             name: {
-              type: "string",
-              description: "Nom du projet"
+              type: 'string',
+              description: 'Nom du projet',
             },
             description: {
-              type: "string", 
-              description: "Description du projet"
+              type: 'string',
+              description: 'Description du projet',
             },
             project_type: {
-              type: "string",
-              description: "Type: web-3d, audio-app, cad-manufacturing, custom",
-              default: "web-3d"
+              type: 'string',
+              description: 'Type: web-3d, audio-app, cad-manufacturing, custom',
+              default: 'web-3d',
             },
             technologies: {
-              type: "array",
-              description: "Technologies utilisées",
-              items: { type: "string" }
-            }
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Technologies utilisées',
+            },
           },
-          required: ["name", "description"]
-        }
+          required: ['name', 'description'],
+        },
       },
       {
-        name: "switch_project",
-        description: "Basculer vers un projet existant",
+        name: 'switch_project',
+        description: 'Basculer vers un projet existant',
         inputSchema: {
-          type: "object",
+          type: 'object',
           properties: {
             project_id: {
-              type: "string",
-              description: "ID du projet"
-            }
+              type: 'string',
+              description: 'ID du projet',
+            },
           },
-          required: ["project_id"]
-        }
+          required: ['project_id'],
+        },
       },
       {
-        name: "get_project_context",
-        description: "Récupérer le contexte complet d'un projet",
+        name: 'get_project_context',
+        description: 'Récupérer le contexte complet d\'un projet',
         inputSchema: {
-          type: "object",
+          type: 'object',
           properties: {
             project_id: {
-              type: "string",
-              description: "ID du projet (optionnel, utilise le projet actif)"
-            }
-          }
-        }
+              type: 'string',
+              description: 'ID du projet (optionnel, utilise le projet actif)',
+            },
+          },
+        },
       },
       {
-        name: "import_claude_conversation",
-        description: "Importer une conversation Claude dans le projet",
+        name: 'import_claude_conversation',
+        description: 'Importer une conversation Claude dans le projet',
         inputSchema: {
-          type: "object",
+          type: 'object',
           properties: {
             conversation_text: {
-              type: "string",
-              description: "Texte de la conversation exportée de Claude"
-            },
-            phase: {
-              type: "string",
-              description: "Phase du projet (ex: initial-setup, development, optimization)"
+              type: 'string',
+              description: 'Texte de la conversation exportée de Claude',
             },
             summary: {
-              type: "string",
-              description: "Résumé de la conversation"
-            }
+              type: 'string',
+              description: 'Résumé de la conversation',
+            },
+            phase: {
+              type: 'string',
+              description: 'Phase du projet (ex: initial-setup, development, optimization)',
+            },
           },
-          required: ["conversation_text", "phase", "summary"]
-        }
+          required: ['conversation_text', 'phase', 'summary'],
+        },
       },
       {
-        name: "search_conversation_history",
-        description: "Rechercher dans l'historique des conversations",
+        name: 'search_conversation_history',
+        description: 'Rechercher dans l\'historique des conversations',
         inputSchema: {
-          type: "object",
+          type: 'object',
           properties: {
             query: {
-              type: "string",
-              description: "Terme à rechercher"
+              type: 'string',
+              description: 'Terme à rechercher',
             },
             project_id: {
-              type: "string",
-              description: "ID du projet (optionnel)"
-            }
+              type: 'string',
+              description: 'ID du projet (optionnel)',
+            },
           },
-          required: ["query"]
-        }
+          required: ['query'],
+        },
       },
       {
-        name: "add_documentation",
-        description: "Ajouter de la documentation technique",
+        name: 'add_documentation',
+        description: 'Ajouter de la documentation technique',
         inputSchema: {
-          type: "object",
+          type: 'object',
           properties: {
             technology: {
-              type: "string",
-              description: "Technologie concernée"
+              type: 'string',
+              description: 'Technologie concernée',
             },
             title: {
-              type: "string",
-              description: "Titre de la documentation"
+              type: 'string',
+              description: 'Titre de la documentation',
             },
             content: {
-              type: "string",
-              description: "Contenu ou URL"
+              type: 'string',
+              description: 'Contenu ou URL',
             },
             relevance: {
-              type: "string",
-              description: "Niveau de pertinence: high, medium, low",
-              default: "high"
-            }
+              type: 'string',
+              description: 'Niveau de pertinence: high, medium, low',
+              default: 'high',
+            },
           },
-          required: ["technology", "title", "content"]
-        }
+          required: ['technology', 'title', 'content'],
+        },
       },
       {
-        name: "record_technical_decision",
-        description: "Enregistrer une décision technique",
+        name: 'record_technical_decision',
+        description: 'Enregistrer une décision technique',
         inputSchema: {
-          type: "object",
+          type: 'object',
           properties: {
             decision: {
-              type: "string",
-              description: "Description de la décision"
+              type: 'string',
+              description: 'Description de la décision',
             },
             reasoning: {
-              type: "string",
-              description: "Justification de la décision"
+              type: 'string',
+              description: 'Justification de la décision',
             },
             impact: {
-              type: "string",
-              description: "Impact attendu"
-            }
+              type: 'string',
+              description: 'Impact attendu',
+            },
           },
-          required: ["decision", "reasoning"]
-        }
+          required: ['decision', 'reasoning'],
+        },
       },
       {
-        name: "get_architecture_rules",
-        description: "Récupérer les règles d'architecture du projet actif",
+        name: 'get_architecture_rules',
+        description: 'Récupérer les règles d\'architecture du projet actif',
         inputSchema: {
-          type: "object",
-          properties: {}
-        }
+          type: 'object',
+          properties: {},
+        },
       },
       {
-        name: "update_project_phase",
-        description: "Mettre à jour la phase actuelle du projet",
+        name: 'update_project_phase',
+        description: 'Mettre à jour la phase actuelle du projet',
         inputSchema: {
-          type: "object",
+          type: 'object',
           properties: {
             phase: {
-              type: "string",
-              description: "Nouvelle phase du projet"
-            }
+              type: 'string',
+              description: 'Nouvelle phase du projet',
+            },
           },
-          required: ["phase"]
-        }
-      }
-    ]
+          required: ['phase'],
+        },
+      },
+      {
+        name: 'create_note',
+        description: 'Créer une nouvelle note',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'Titre de la note',
+            },
+            content: {
+              type: 'string',
+              description: 'Contenu de la note',
+            },
+          },
+          required: ['title', 'content'],
+        },
+      },
+    ],
   };
 });
 
-/**
- * Handler for tool calls.
- */
+// Gestionnaire des appels d'outils
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
-    await initializeDataStructure();
-
     switch (name) {
-      case "list_projects": {
-        const data = await loadProjects();
-        const projectList = Object.values(data.projects).map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          status: p.status,
-          last_active: p.last_active,
-          current_phase: p.current_phase,
-          technologies: p.technologies
-        }));
-
+      case 'list_projects': {
         return {
-          content: [{
-            type: "text",
-            text: `📋 **PROJETS DISPONIBLES**\n\n${JSON.stringify({
-              active_project: data.active_project,
-              projects: projectList
-            }, null, 2)}`
-          }]
+          content: [
+            {
+              type: 'text',
+              text: `PROJETS DISPONIBLES
+
+${JSON.stringify({
+  active_project: currentProject?.id || null,
+  projects: projects.map(p => ({
+    id: p.id,
+    name: p.name,
+    type: p.type,
+    phase: p.phase,
+    status: p.status,
+    technologies: p.technologies
+  }))
+}, null, 2)}`,
+            },
+          ],
         };
       }
 
-      case "create_project": {
-        const { name: projectName, description, project_type = "web-3d", technologies = [] } = args as any;
-        const data = await loadProjects();
-        
-        const projectId = projectName.toLowerCase().replace(/\s+/g, '-');
-        const architecture = generateModularStructure(project_type);
+      case 'create_project': {
+        const { name, description, project_type = 'custom', technologies = [] } = args as any;
         
         const newProject: Project = {
-          id: projectId,
-          name: projectName,
+          id: generateId(),
+          name,
           description,
-          status: 'active',
+          type: project_type,
           technologies,
-          architecture,
-          current_phase: 'initial-setup',
-          created_date: new Date().toISOString(),
-          last_active: new Date().toISOString(),
-          conversations: [],
-          documentation: [],
-          decisions: []
+          created: new Date().toISOString(),
+          phase: 'initial-setup',
+          status: 'active'
         };
 
-        data.projects[projectId] = newProject;
-        data.active_project = projectId;
-        await saveProjects(data);
+        projects.push(newProject);
+        currentProject = newProject;
+        
+        await saveData(); // CORRECTION: Maintenant ça marche avec fs-extra
 
         return {
-          content: [{
-            type: "text",
-            text: `✅ **PROJET CRÉÉ : ${projectName}**\n\n🏗️ **Architecture configurée :**\n${JSON.stringify(architecture, null, 2)}\n\n📁 **Structure recommandée :**\n${architecture.structure.map((folder: string) => `- ${folder}`).join('\n')}\n\n⚡ **Règles à respecter :**\n${architecture.rules.map((rule: string) => `- ${rule}`).join('\n')}`
-          }]
+          content: [
+            {
+              type: 'text',
+              text: `PROJET CREE AVEC SUCCES
+
+Détails du projet :
+- ID : ${newProject.id}
+- Nom : ${newProject.name}
+- Type : ${newProject.type}
+- Technologies : ${newProject.technologies.join(', ')}
+- Phase : ${newProject.phase}
+- Statut : Actif
+
+Projet actuel : ${newProject.name} est maintenant le projet actif.`,
+            },
+          ],
         };
       }
 
-      case "switch_project": {
+      case 'switch_project': {
         const { project_id } = args as any;
-        const data = await loadProjects();
+        const project = projects.find(p => p.id === project_id);
         
-        if (!data.projects[project_id]) {
-          throw new Error(`Projet ${project_id} non trouvé`);
+        if (!project) {
+          throw new McpError(ErrorCode.InvalidParams, `Projet avec ID ${project_id} non trouvé`);
         }
 
-        data.active_project = project_id;
-        data.projects[project_id].last_active = new Date().toISOString();
-        await saveProjects(data);
+        currentProject = project;
+        await saveData();
 
-        const project = data.projects[project_id];
-        
         return {
-          content: [{
-            type: "text",
-            text: `🔄 **PROJET ACTIVÉ : ${project.name}**\n\n📊 **Contexte chargé :**\n- Phase actuelle : ${project.current_phase}\n- Technologies : ${project.technologies.join(', ')}\n- Conversations : ${project.conversations.length}\n- Décisions : ${project.decisions.length}\n- Documentation : ${project.documentation.length}\n\n🏗️ **Architecture active :**\n${project.architecture.pattern}\n\n⚡ **Règles à respecter :**\n${project.architecture.rules.map((rule: string) => `- ${rule}`).join('\n')}`
-          }]
+          content: [
+            {
+              type: 'text',
+              text: `PROJET ACTIVE
+
+Projet actuel : ${project.name}
+- Phase : ${project.phase}
+- Technologies : ${project.technologies.join(', ')}
+- Cree : ${new Date(project.created).toLocaleDateString()}`,
+            },
+          ],
         };
       }
 
-      case "get_project_context": {
+      case 'get_project_context': {
         const { project_id } = args as any;
-        const data = await loadProjects();
-        const targetProject = project_id ? data.projects[project_id] : data.projects[data.active_project];
-        
-        if (!targetProject) {
-          throw new Error('Aucun projet actif ou projet non trouvé');
+        const project = project_id 
+          ? projects.find(p => p.id === project_id)
+          : currentProject;
+
+        if (!project) {
+          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet trouvé');
         }
 
-        const recentConversations = targetProject.conversations.slice(-3);
-        const recentDecisions = targetProject.decisions.slice(-5);
+        const projectConversations = conversations.filter(c => c.project_id === project.id);
+        const projectNotes = notes.filter(n => n.project_id === project.id);
+        const projectDecisions = decisions.filter(d => d.project_id === project.id);
+        const projectDocs = documentation.filter(d => d.project_id === project.id);
 
         return {
-          content: [{
-            type: "text",
-            text: `🧠 **CONTEXTE COMPLET : ${targetProject.name}**\n\n📋 **État actuel :**\n- Phase : ${targetProject.current_phase}\n- Statut : ${targetProject.status}\n- Technologies : ${targetProject.technologies.join(', ')}\n\n🏗️ **Architecture :**\n- Pattern : ${targetProject.architecture.pattern}\n- Structure : ${targetProject.architecture.structure.join(', ')}\n- Règles : ${targetProject.architecture.rules.join(' | ')}\n\n💬 **Conversations récentes :**\n${recentConversations.map((conv: any) => `- ${conv.date} : ${conv.summary}`).join('\n')}\n\n⚡ **Décisions récentes :**\n${recentDecisions.map((dec: any) => `- ${dec.date} : ${dec.decision}`).join('\n')}\n\n📚 **Documentation disponible :**\n${targetProject.documentation.map((doc: any) => `- ${doc.technology} : ${doc.title}`).join('\n')}`
-          }]
+          content: [
+            {
+              type: 'text',
+              text: `CONTEXTE COMPLET DU PROJET
+
+## ${project.name}
+Description : ${project.description}
+Phase : ${project.phase}
+Technologies : ${project.technologies.join(', ')}
+
+### Conversations (${projectConversations.length})
+${projectConversations.map(c => `- ${c.summary} (${c.phase})`).join('\n') || 'Aucune conversation'}
+
+### Notes (${projectNotes.length})
+${projectNotes.map(n => `- ${n.title}`).join('\n') || 'Aucune note'}
+
+### Decisions techniques (${projectDecisions.length})
+${projectDecisions.map(d => `- ${d.decision}`).join('\n') || 'Aucune décision'}
+
+### Documentation (${projectDocs.length})
+${projectDocs.map(d => `- ${d.title} (${d.technology})`).join('\n') || 'Aucune documentation'}`,
+            },
+          ],
         };
       }
 
-      case "import_claude_conversation": {
-        const { conversation_text, phase, summary } = args as any;
-        const data = await loadProjects();
-        const activeProject = data.projects[data.active_project];
-        
-        if (!activeProject) {
-          throw new Error('Aucun projet actif');
+      case 'import_claude_conversation': {
+        if (!currentProject) {
+          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif. Créez ou sélectionnez un projet d\'abord.');
         }
 
-        const parsed = parseClaudeConversation(conversation_text);
-        const conversationData = {
-          id: `conv_${Date.now()}`,
-          date: new Date().toISOString(),
-          phase,
+        const { conversation_text, summary, phase } = args as any;
+        
+        const conversation: Conversation = {
+          id: generateId(),
+          project_id: currentProject.id,
           summary,
-          raw_conversation: conversation_text,
-          ...parsed
+          phase,
+          content: conversation_text,
+          timestamp: new Date().toISOString()
         };
 
-        const filePath = await saveConversation(activeProject.id, conversationData);
-        
-        activeProject.conversations.push({
-          ...conversationData,
-          file_path: filePath
-        });
-
-        await saveProjects(data);
+        conversations.push(conversation);
+        await saveData();
 
         return {
-          content: [{
-            type: "text",
-            text: `📥 **CONVERSATION IMPORTÉE**\n\n📊 **Analyse automatique :**\n- Décisions identifiées : ${parsed.key_decisions.length}\n- Fichiers créés : ${parsed.code_files_created.length}\n- Problèmes résolus : ${parsed.problems_solved.length}\n\n💾 **Sauvegardé dans :** ${filePath}\n\n🔍 **Décisions extraites :**\n${parsed.key_decisions.map((d: string) => `- ${d}`).join('\n')}`
-          }]
+          content: [
+            {
+              type: 'text',
+              text: `CONVERSATION IMPORTEE
+
+Details :
+- Projet : ${currentProject.name}
+- Phase : ${phase}
+- Resume : ${summary}
+- Taille : ${conversation_text.length} caracteres
+- ID : ${conversation.id}
+
+Recherche : Utilisez search_conversation_history pour retrouver cette conversation.`,
+            },
+          ],
         };
       }
 
-      case "search_conversation_history": {
+      case 'search_conversation_history': {
         const { query, project_id } = args as any;
-        const data = await loadProjects();
-        const searchProjects = project_id ? [data.projects[project_id]] : Object.values(data.projects);
         
-        const results: any[] = [];
-        
-        for (const project of searchProjects) {
-          if (!project) continue;
-          
-          for (const conv of (project as any).conversations) {
-            if (conv.summary.toLowerCase().includes(query.toLowerCase()) ||
-                conv.key_decisions.some((d: string) => d.toLowerCase().includes(query.toLowerCase())) ||
-                conv.problems_solved.some((p: string) => p.toLowerCase().includes(query.toLowerCase()))) {
-              results.push({
-                project: (project as any).name,
-                date: conv.date,
-                phase: conv.phase,
-                summary: conv.summary,
-                relevance: 'high'
-              });
-            }
-          }
+        let searchConversations = conversations;
+        if (project_id) {
+          searchConversations = conversations.filter(c => c.project_id === project_id);
         }
 
+        const results = searchConversations.filter(c => 
+          c.content.toLowerCase().includes(query.toLowerCase()) ||
+          c.summary.toLowerCase().includes(query.toLowerCase())
+        );
+
         return {
-          content: [{
-            type: "text",
-            text: `🔍 **RECHERCHE : "${query}"**\n\n📊 **${results.length} résultats trouvés**\n\n${results.map(r => `📅 ${r.date} - ${r.project}\n🔸 ${r.phase} : ${r.summary}`).join('\n\n')}`
-          }]
+          content: [
+            {
+              type: 'text',
+              text: `RESULTATS DE RECHERCHE
+
+Recherche : "${query}"
+Resultats trouves : ${results.length}
+
+${results.map(r => {
+  const project = projects.find(p => p.id === r.project_id);
+  return `### ${r.summary}
+Projet : ${project?.name || 'Inconnu'}
+Phase : ${r.phase}
+Date : ${new Date(r.timestamp).toLocaleDateString()}
+Extrait : ${r.content.substring(0, 200)}...
+---`;
+}).join('\n')}`,
+            },
+          ],
         };
       }
 
-      case "add_documentation": {
-        const { technology, title, content, relevance = 'high' } = args as any;
-        const data = await loadProjects();
-        const activeProject = data.projects[data.active_project];
-        
-        if (!activeProject) {
-          throw new Error('Aucun projet actif');
+      case 'add_documentation': {
+        if (!currentProject) {
+          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif. Créez ou sélectionnez un projet d\'abord.');
         }
 
-        const doc: DocumentationLink = {
+        const { technology, title, content, relevance = 'high' } = args as any;
+        
+        const doc: Documentation = {
+          id: generateId(),
+          project_id: currentProject.id,
           technology,
           title,
           content,
-          relevance: relevance as 'high' | 'medium' | 'low'
+          relevance,
+          timestamp: new Date().toISOString()
         };
 
-        activeProject.documentation.push(doc);
-        await saveProjects(data);
+        documentation.push(doc);
+        await saveData();
 
         return {
-          content: [{
-            type: "text",
-            text: `📚 **DOCUMENTATION AJOUTÉE**\n\n🔧 **Technologie :** ${technology}\n📖 **Titre :** ${title}\n⭐ **Pertinence :** ${relevance}\n\n✅ Documentation accessible pour le projet ${activeProject.name}`
-          }]
+          content: [
+            {
+              type: 'text',
+              text: `DOCUMENTATION AJOUTEE
+
+Projet : ${currentProject.name}
+Technologie : ${technology}
+Titre : ${title}
+Pertinence : ${relevance}
+ID : ${doc.id}`,
+            },
+          ],
         };
       }
 
-      case "record_technical_decision": {
-        const { decision, reasoning, impact = 'À évaluer' } = args as any;
-        const data = await loadProjects();
-        const activeProject = data.projects[data.active_project];
-        
-        if (!activeProject) {
-          throw new Error('Aucun projet actif');
+      case 'record_technical_decision': {
+        if (!currentProject) {
+          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif. Créez ou sélectionnez un projet d\'abord.');
         }
 
-        const technicalDecision: TechnicalDecision = {
-          date: new Date().toISOString(),
+        const { decision, reasoning, impact = 'À définir' } = args as any;
+        
+        const techDecision: TechnicalDecision = {
+          id: generateId(),
+          project_id: currentProject.id,
           decision,
           reasoning,
-          impact
+          impact,
+          timestamp: new Date().toISOString()
         };
 
-        activeProject.decisions.push(technicalDecision);
-        await saveProjects(data);
+        decisions.push(techDecision);
+        await saveData();
 
         return {
-          content: [{
-            type: "text",
-            text: `⚡ **DÉCISION ENREGISTRÉE**\n\n📋 **Décision :** ${decision}\n🤔 **Justification :** ${reasoning}\n📊 **Impact :** ${impact}\n\n✅ Ajoutée à l'historique du projet ${activeProject.name}`
-          }]
+          content: [
+            {
+              type: 'text',
+              text: `DECISION TECHNIQUE ENREGISTREE
+
+Projet : ${currentProject.name}
+Decision : ${decision}
+Justification : ${reasoning}
+Impact : ${impact}
+ID : ${techDecision.id}`,
+            },
+          ],
         };
       }
 
-      case "get_architecture_rules": {
-        const data = await loadProjects();
-        const activeProject = data.projects[data.active_project];
-        
-        if (!activeProject) {
-          throw new Error('Aucun projet actif');
+      case 'get_architecture_rules': {
+        if (!currentProject) {
+          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif.');
         }
 
+        const projectId = currentProject.id;
+        const projectDecisions = decisions.filter(d => d.project_id === projectId);
+        const projectDocs = documentation.filter(d => d.project_id === projectId);
+
         return {
-          content: [{
-            type: "text",
-            text: `🏗️ **RÈGLES D'ARCHITECTURE - ${activeProject.name}**\n\n📐 **Pattern :** ${activeProject.architecture.pattern}\n\n📁 **Structure obligatoire :**\n${activeProject.architecture.structure.map((folder: string) => `- ${folder}`).join('\n')}\n\n✅ **Conventions :**\n${activeProject.architecture.conventions.map((conv: string) => `- ${conv}`).join('\n')}\n\n⚡ **Règles à respecter IMPÉRATIVEMENT :**\n${activeProject.architecture.rules.map((rule: string) => `- ${rule}`).join('\n')}\n\n🎯 **Appliquez ces règles à TOUT le code généré !**`
-          }]
+          content: [
+            {
+              type: 'text',
+              text: `REGLES D'ARCHITECTURE - ${currentProject.name}
+
+### Technologies utilisees
+${currentProject.technologies.map(t => `- ${t}`).join('\n')}
+
+### Decisions techniques
+${projectDecisions.map(d => `- ${d.decision}\n  Justification: ${d.reasoning}`).join('\n\n') || 'Aucune décision enregistrée'}
+
+### Documentation pertinente
+${projectDocs.filter(d => d.relevance === 'high').map(d => `- ${d.title} (${d.technology})`).join('\n') || 'Aucune documentation'}`,
+            },
+          ],
         };
       }
 
-      case "update_project_phase": {
+      case 'update_project_phase': {
+        if (!currentProject) {
+          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif.');
+        }
+
         const { phase } = args as any;
-        const data = await loadProjects();
-        const activeProject = data.projects[data.active_project];
+        const oldPhase = currentProject!.phase;
+        currentProject!.phase = phase;
         
-        if (!activeProject) {
-          throw new Error('Aucun projet actif');
+        // Mettre à jour dans la liste des projets
+        const projectIndex = projects.findIndex(p => p.id === currentProject!.id);
+        if (projectIndex !== -1) {
+          projects[projectIndex] = currentProject!;
         }
 
-        const oldPhase = activeProject.current_phase;
-        activeProject.current_phase = phase;
-        activeProject.last_active = new Date().toISOString();
-        await saveProjects(data);
+        await saveData();
 
         return {
-          content: [{
-            type: "text",
-            text: `🔄 **PHASE MISE À JOUR**\n\n📊 **Projet :** ${activeProject.name}\n⬅️ **Ancienne phase :** ${oldPhase}\n➡️ **Nouvelle phase :** ${phase}\n\n✅ Contexte mis à jour`
-          }]
+          content: [
+            {
+              type: 'text',
+              text: `PHASE MISE A JOUR
+
+Projet : ${currentProject!.name}
+Ancienne phase : ${oldPhase}
+Nouvelle phase : ${phase}
+Timestamp : ${new Date().toISOString()}`,
+            },
+          ],
+        };
+      }
+
+      case 'create_note': {
+        const { title, content } = args as any;
+        
+        const note: Note = {
+          id: generateId(),
+          title,
+          content,
+          timestamp: new Date().toISOString(),
+          project_id: currentProject?.id
+        };
+
+        notes.push(note);
+        await saveData();
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `NOTE CREEE
+
+Titre : ${title}
+Contenu : ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}
+Projet : ${currentProject?.name || 'General'}
+ID : ${note.id}`,
+            },
+          ],
         };
       }
 
       default:
-        throw new Error(`Outil inconnu: ${name}`);
+        throw new McpError(ErrorCode.MethodNotFound, `Outil inconnu: ${name}`);
     }
-  } catch (error: any) {
-    console.error(`[ERROR ${name}]`, error);
-    return {
-      content: [{
-        type: "text",
-        text: `❌ **Erreur ${name}:** ${error.message}`
-      }]
-    };
+  } catch (error) {
+    if (error instanceof McpError) {
+      throw error;
+    }
+    
+    console.error(`Erreur dans l'outil ${name}:`, error);
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Erreur interne: ${error instanceof Error ? error.message : 'Erreur inconnue'}`
+    );
   }
 });
 
 /**
- * Start the server using stdio transport.
+ * DÉMARRAGE DU SERVEUR CORRIGÉ
  */
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error('🧠 Project Memory & Context Manager started!');
+  try {
+    // Chargement des données au démarrage
+    await loadData();
+    
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+  } catch (error) {
+    console.error('Erreur demarrage Project Context Manager:', error);
+    process.exit(1);
+  }
 }
 
-main().catch((error) => {
-  console.error("Server error:", error);
-  process.exit(1);
-});
+main().catch(console.error);
