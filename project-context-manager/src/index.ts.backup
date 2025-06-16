@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Project Context Manager MCP Server - VERSION GÉNÉRIQUE
+ * Project Context Manager MCP Server - VERSION CORRIGÉE
  * 
  * Correction du bug fs.writeJson is not a function
  * Utilise fs-extra au lieu de fs natif
@@ -11,16 +11,6 @@
  * - Historique des conversations
  * - Documentation technique intégrée
  * - Recherche dans l'historique
- * - NOUVEAU : Suppression et déplacement de conversations (GÉNÉRIQUE)
- * - NOUVEAU : Détection automatique conversations mal placées (TOUS PROJETS)
- * - NOUVEAU : Restauration conversations supprimées
- * - NOUVEAU : Analyse d'intégrité globale avec suggestions automatiques
- * 
- * SYSTÈME GÉNÉRIQUE :
- * - Fonctionne avec n'importe quels projets
- * - Analyse automatique basée sur nom, description et technologies
- * - Suggestions intelligentes de projets de destination
- * - Détection proactive d'erreurs d'archivage
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -88,23 +78,6 @@ interface Documentation {
   timestamp: string;
 }
 
-// NOUVELLES INTERFACES POUR GESTION CONVERSATIONS
-interface DeletedConversation {
-  id: string;
-  deleted_at: string;
-  reason: string;
-  original_data: Conversation;
-  deleted_by?: string;
-}
-
-interface MoveSuggestion {
-  conversation_id: string;
-  current_project: string;
-  suggested_project: string;
-  confidence: number;
-  reason: string;
-}
-
 // État global
 let currentProject: Project | null = null;
 let projects: Project[] = [];
@@ -112,13 +85,12 @@ let conversations: Conversation[] = [];
 let notes: Note[] = [];
 let decisions: TechnicalDecision[] = [];
 let documentation: Documentation[] = [];
-let deletedConversations: DeletedConversation[] = []; // NOUVEAU
 
 // Initialisation du serveur
 const server = new Server(
   {
     name: 'project-context-manager',
-    version: '3.1.0', // VERSION GÉNÉRIQUE
+    version: '2.1.0',
   },
   {
     capabilities: {
@@ -154,7 +126,6 @@ async function loadData(): Promise<void> {
       notes = data.notes || [];
       decisions = data.decisions || [];
       documentation = data.documentation || [];
-      deletedConversations = data.deletedConversations || []; // NOUVEAU
     }
   } catch (error) {
     console.error('Erreur chargement des données:', error);
@@ -164,7 +135,6 @@ async function loadData(): Promise<void> {
     notes = [];
     decisions = [];
     documentation = [];
-    deletedConversations = []; // NOUVEAU
   }
 }
 
@@ -177,7 +147,6 @@ async function saveData(): Promise<void> {
       notes,
       decisions,
       documentation,
-      deletedConversations, // NOUVEAU
       lastUpdated: new Date().toISOString()
     };
     
@@ -193,105 +162,7 @@ function generateId(): string {
 }
 
 /**
- * SYSTÈME GÉNÉRIQUE DE CORRESPONDANCE DE PROJETS
- * Analyse les mots-clés pour suggérer le meilleur projet de destination
- */
-function findBestProjectMatch(keywords: string[], allProjects: Project[], excludeProjectId: string): string {
-  let bestMatch = 'Projet inconnu';
-  let highestScore = 0;
-
-  // Analyser chaque projet (sauf le projet actuel)
-  for (const project of allProjects.filter(p => p.id !== excludeProjectId)) {
-    let score = 0;
-    
-    // Analyser correspondances dans le nom du projet
-    const projectName = project.name.toLowerCase();
-    const projectDescription = project.description.toLowerCase();
-    const projectTechnologies = project.technologies.map(t => t.toLowerCase());
-    
-    // Calculer score basé sur correspondances
-    for (const keyword of keywords) {
-      const keywordLower = keyword.toLowerCase();
-      
-      // Correspondance exacte dans le nom (score élevé)
-      if (projectName.includes(keywordLower)) {
-        score += 10;
-      }
-      
-      // Correspondance dans la description (score moyen)
-      if (projectDescription.includes(keywordLower)) {
-        score += 5;
-      }
-      
-      // Correspondance dans les technologies (score élevé)
-      if (projectTechnologies.some(tech => tech.includes(keywordLower))) {
-        score += 8;
-      }
-      
-      // Correspondance partielle dans nom/description (score faible)
-      if (projectName.split(' ').some(word => word.includes(keywordLower) || keywordLower.includes(word))) {
-        score += 3;
-      }
-    }
-    
-    // Mettre à jour le meilleur match
-    if (score > highestScore) {
-      highestScore = score;
-      bestMatch = project.name;
-    }
-  }
-  
-  return bestMatch;
-}
-
-/**
- * ANALYSE AUTOMATIQUE DES PROJETS POUR DÉTECTER LES ERREURS D'ARCHIVAGE
- * Fonction utilitaire pour identifier les conversations qui semblent appartenir à d'autres projets
- */
-function analyzeAllProjectsForMisplacedConversations(): { projectId: string; suspiciousConversations: number }[] {
-  const results: { projectId: string; suspiciousConversations: number }[] = [];
-  
-  for (const project of projects) {
-    const projectConversations = conversations.filter(c => c.project_id === project.id);
-    let suspiciousCount = 0;
-    
-    // Extraire les mots-clés caractéristiques des autres projets
-    const otherProjectKeywords = projects
-      .filter(p => p.id !== project.id)
-      .flatMap(p => [
-        ...p.name.toLowerCase().split(' '),
-        ...p.technologies.map(t => t.toLowerCase()),
-        ...p.description.toLowerCase().split(' ').filter(word => word.length > 4)
-      ]);
-    
-    // Analyser chaque conversation du projet
-    for (const conversation of projectConversations) {
-      const conversationText = `${conversation.summary} ${conversation.content}`.toLowerCase();
-      
-      // Compter les références à d'autres projets
-      const suspiciousWordCount = otherProjectKeywords.filter(keyword => 
-        conversationText.includes(keyword)
-      ).length;
-      
-      // Si plus de 3 références à d'autres projets, c'est suspect
-      if (suspiciousWordCount > 3) {
-        suspiciousCount++;
-      }
-    }
-    
-    if (suspiciousCount > 0) {
-      results.push({
-        projectId: project.id,
-        suspiciousConversations: suspiciousCount
-      });
-    }
-  }
-  
-  return results;
-}
-
-/**
- * OUTILS MCP ÉTENDUS
+ * OUTILS MCP CORRIGÉS
  */
 
 // Liste des outils disponibles
@@ -488,108 +359,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['title', 'content'],
-        },
-      },
-      // NOUVEAUX OUTILS DE GESTION DES CONVERSATIONS
-      {
-        name: 'delete_conversation',
-        description: 'Supprimer une conversation du projet avec sauvegarde de sécurité',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            conversation_id: {
-              type: 'string',
-              description: 'ID de la conversation à supprimer',
-            },
-            project_id: {
-              type: 'string',
-              description: 'ID du projet (optionnel, utilise le projet actif)',
-            },
-            reason: {
-              type: 'string',
-              description: 'Motif de suppression',
-              default: 'Suppression manuelle',
-            },
-          },
-          required: ['conversation_id'],
-        },
-      },
-      {
-        name: 'move_conversation_to_project',
-        description: 'Déplacer une conversation vers un autre projet',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            conversation_id: {
-              type: 'string',
-              description: 'ID de la conversation à déplacer',
-            },
-            source_project_id: {
-              type: 'string',
-              description: 'ID du projet source (optionnel, utilise le projet actif)',
-            },
-            target_project_id: {
-              type: 'string',
-              description: 'ID du projet destination',
-            },
-            reason: {
-              type: 'string',
-              description: 'Motif du déplacement',
-              default: 'Déplacement manuel',
-            },
-          },
-          required: ['conversation_id', 'target_project_id'],
-        },
-      },
-      {
-        name: 'find_misplaced_conversations',
-        description: 'Détecte les conversations potentiellement mal classées',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project_id: {
-              type: 'string',
-              description: 'ID du projet à analyser (optionnel, utilise le projet actif)',
-            },
-            keywords: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Mots-clés suspects à rechercher',
-            },
-          },
-          required: ['keywords'],
-        },
-      },
-      {
-        name: 'restore_conversation',
-        description: 'Restaure une conversation précédemment supprimée',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            conversation_id: {
-              type: 'string',
-              description: 'ID de la conversation à restaurer',
-            },
-            project_id: {
-              type: 'string',
-              description: 'ID du projet (optionnel, utilise le projet actif)',
-            },
-          },
-          required: ['conversation_id'],
-        },
-      },
-      {
-        name: 'analyze_all_projects_integrity',
-        description: 'Analyse automatique de l\'intégrité de tous les projets pour détecter les conversations mal placées',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            auto_suggest_fixes: {
-              type: 'boolean',
-              description: 'Générer automatiquement des suggestions de correction',
-              default: true,
-            },
-          },
         },
       },
     ],
@@ -966,287 +735,6 @@ ID : ${note.id}`,
         };
       }
 
-      // NOUVEAUX HANDLERS POUR GESTION DES CONVERSATIONS
-      case 'delete_conversation': {
-        const { conversation_id, project_id, reason = 'Suppression manuelle' } = args as any;
-        
-        // Déterminer le projet
-        const targetProject = project_id 
-          ? projects.find(p => p.id === project_id)
-          : currentProject;
-        
-        if (!targetProject) {
-          throw new McpError(ErrorCode.InvalidParams, `Projet non trouvé: ${project_id || 'actuel'}`);
-        }
-
-        // Trouver la conversation
-        const conversationIndex = conversations.findIndex(
-          c => c.id === conversation_id && c.project_id === targetProject.id
-        );
-        
-        if (conversationIndex === -1) {
-          throw new McpError(ErrorCode.InvalidParams, `Conversation non trouvée: ${conversation_id}`);
-        }
-
-        const conversation = conversations[conversationIndex];
-
-        // Créer entrée suppression
-        const deletedEntry: DeletedConversation = {
-          id: conversation_id,
-          deleted_at: new Date().toISOString(),
-          reason,
-          original_data: conversation,
-          deleted_by: 'user'
-        };
-
-        // Sauvegarder dans deleted_conversations
-        deletedConversations.push(deletedEntry);
-
-        // Supprimer de la liste active
-        conversations.splice(conversationIndex, 1);
-
-        await saveData();
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `CONVERSATION SUPPRIMEE
-
-Projet : ${targetProject.name}
-Conversation : ${conversation.summary}
-Raison : ${reason}
-ID : ${conversation_id}
-
-La conversation a été sauvegardée et peut être restaurée si nécessaire.`,
-            },
-          ],
-        };
-      }
-
-      case 'move_conversation_to_project': {
-        const { conversation_id, source_project_id, target_project_id, reason = 'Déplacement manuel' } = args as any;
-
-        // Trouver projet source
-        const sourceProject = source_project_id 
-          ? projects.find(p => p.id === source_project_id)
-          : currentProject;
-        
-        if (!sourceProject) {
-          throw new McpError(ErrorCode.InvalidParams, `Projet source non trouvé: ${source_project_id || 'actuel'}`);
-        }
-
-        // Trouver projet destination
-        const targetProject = projects.find(p => p.id === target_project_id);
-        if (!targetProject) {
-          throw new McpError(ErrorCode.InvalidParams, `Projet destination non trouvé: ${target_project_id}`);
-        }
-
-        // Trouver et modifier la conversation
-        const conversationIndex = conversations.findIndex(
-          c => c.id === conversation_id && c.project_id === sourceProject.id
-        );
-        
-        if (conversationIndex === -1) {
-          throw new McpError(ErrorCode.InvalidParams, `Conversation non trouvée: ${conversation_id}`);
-        }
-
-        const conversation = conversations[conversationIndex];
-        conversation.project_id = target_project_id;
-
-        await saveData();
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `CONVERSATION DEPLACEE
-
-De : ${sourceProject.name}
-Vers : ${targetProject.name}
-Conversation : ${conversation.summary}
-Raison : ${reason}
-ID : ${conversation_id}`,
-            },
-          ],
-        };
-      }
-
-      case 'find_misplaced_conversations': {
-        const { project_id, keywords } = args as any;
-        
-        const targetProject = project_id 
-          ? projects.find(p => p.id === project_id)
-          : currentProject;
-        
-        if (!targetProject) {
-          throw new McpError(ErrorCode.InvalidParams, `Projet non trouvé: ${project_id || 'actuel'}`);
-        }
-
-        const projectConversations = conversations.filter(c => c.project_id === targetProject.id);
-        const suspicious: Conversation[] = [];
-        const recommendations: MoveSuggestion[] = [];
-
-        // Analyser chaque conversation
-        for (const conversation of projectConversations) {
-          const text = `${conversation.summary} ${conversation.content}`.toLowerCase();
-          
-          const foundKeywords = keywords.filter((keyword: string) => 
-            text.includes(keyword.toLowerCase())
-          );
-
-          if (foundKeywords.length > 0) {
-            suspicious.push(conversation);
-            
-            // SYSTÈME GÉNÉRIQUE DE SUGGESTION DE PROJET
-            const suggestedProject = findBestProjectMatch(foundKeywords, projects, targetProject.id);
-            
-            recommendations.push({
-              conversation_id: conversation.id,
-              current_project: targetProject.name,
-              suggested_project: suggestedProject,
-              confidence: foundKeywords.length / keywords.length,
-              reason: `Mots-clés détectés: ${foundKeywords.join(', ')}`
-            });
-          }
-        }
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `CONVERSATIONS POTENTIELLEMENT MAL PLACEES
-
-Projet analysé : ${targetProject.name}
-Mots-clés recherchés : ${keywords.join(', ')}
-Conversations suspectes : ${suspicious.length}
-
-${recommendations.map(r => `### Conversation: ${r.conversation_id.substring(0, 8)}...
-Projet actuel : ${r.current_project}
-Projet suggéré : ${r.suggested_project}
-Confiance : ${Math.round(r.confidence * 100)}%
-Raison : ${r.reason}
----`).join('\n')}`,
-            },
-          ],
-        };
-      }
-
-      case 'restore_conversation': {
-        const { conversation_id, project_id } = args as any;
-        
-        const targetProject = project_id 
-          ? projects.find(p => p.id === project_id)
-          : currentProject;
-        
-        if (!targetProject) {
-          throw new McpError(ErrorCode.InvalidParams, `Projet non trouvé: ${project_id || 'actuel'}`);
-        }
-
-        const deletedIndex = deletedConversations.findIndex(
-          del => del.id === conversation_id
-        );
-
-        if (deletedIndex === -1) {
-          throw new McpError(ErrorCode.InvalidParams, `Conversation supprimée non trouvée: ${conversation_id}`);
-        }
-
-        const deletedEntry = deletedConversations.splice(deletedIndex, 1)[0];
-        conversations.push(deletedEntry.original_data);
-
-        await saveData();
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `CONVERSATION RESTAUREE
-
-Projet : ${targetProject.name}
-Conversation : ${deletedEntry.original_data.summary}
-ID : ${conversation_id}
-Supprimée le : ${new Date(deletedEntry.deleted_at).toLocaleString()}
-Raison suppression : ${deletedEntry.reason}`,
-            },
-          ],
-        };
-      }
-
-      case 'analyze_all_projects_integrity': {
-        const { auto_suggest_fixes = true } = args as any;
-        
-        if (projects.length < 2) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: `ANALYSE D'INTÉGRITÉ - RÉSULTATS
-
-Nombre de projets : ${projects.length}
-Statut : Analyse non nécessaire (moins de 2 projets)`,
-              },
-            ],
-          };
-        }
-
-        const suspiciousProjects = analyzeAllProjectsForMisplacedConversations();
-        
-        let analysisReport = `ANALYSE D'INTÉGRITÉ - TOUS LES PROJETS
-
-Nombre total de projets : ${projects.length}
-Nombre de conversations : ${conversations.length}
-Conversations supprimées : ${deletedConversations.length}
-
-### PROJETS AVEC CONVERSATIONS SUSPECTES
-
-`;
-
-        if (suspiciousProjects.length === 0) {
-          analysisReport += `✅ Aucune anomalie détectée - Tous les projets semblent cohérents
-
-Recommandation : Vos archives sont bien organisées !`;
-        } else {
-          for (const suspicious of suspiciousProjects) {
-            const project = projects.find(p => p.id === suspicious.projectId);
-            if (project) {
-              analysisReport += `🚨 **${project.name}**
-   - ${suspicious.suspiciousConversations} conversation(s) potentiellement mal placée(s)
-   - Technologies : ${project.technologies.join(', ')}
-   
-`;
-            }
-          }
-
-          if (auto_suggest_fixes) {
-            analysisReport += `
-### SUGGESTIONS DE CORRECTION
-
-1. **Analyse détaillée** : Utilisez 'find_misplaced_conversations' sur chaque projet suspect
-2. **Mots-clés suggérés** : Recherchez des technologies spécifiques aux autres projets
-3. **Actions recommandées** : 
-   - Identifier les conversations avec des mots-clés d'autres projets
-   - Utiliser 'move_conversation_to_project' pour les corrections
-   - Utiliser 'delete_conversation' si les conversations ne sont pas pertinentes
-
-### COMMANDES SUGGÉRÉES
-${suspiciousProjects.map(sp => {
-  const project = projects.find(p => p.id === sp.projectId);
-  const otherTechnologies = projects.filter(p => p.id !== sp.projectId).flatMap(p => p.technologies).slice(0, 3);
-  return `- find_misplaced_conversations sur "${project?.name}" avec mots-clés: [${otherTechnologies.map(t => `"${t}"`).join(', ')}]`;
-}).join('\n')}`;
-          }
-        }
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: analysisReport,
-            },
-          ],
-        };
-      }
-
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Outil inconnu: ${name}`);
     }
@@ -1264,7 +752,7 @@ ${suspiciousProjects.map(sp => {
 });
 
 /**
- * DÉMARRAGE DU SERVEUR
+ * DÉMARRAGE DU SERVEUR CORRIGÉ
  */
 async function main() {
   try {
@@ -1273,9 +761,6 @@ async function main() {
     
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    
-    console.error('Project Context Manager v3.1.0 démarré avec succès');
-    console.error('Fonctionnalités génériques: gestion conversations tous projets, analyse automatique d\'intégrité');
   } catch (error) {
     console.error('Erreur demarrage Project Context Manager:', error);
     process.exit(1);

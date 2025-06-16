@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "project-context-manager",
   "version": "2.1.0",
   "description": "MCP Server for Project Context Management",
@@ -11,12 +11,12 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.2",
-    "fs-extra": "^11.0.0"
+    "fs-extra": "^11.3.0"
   },
   "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
     "@types/node": "^20.0.0",
-    "@types/fs-extra": "^11.0.0",
-    "typescript": "^5.0.0",
-    "rimraf": "^5.0.0"
+    "rimraf": "^5.0.0",
+    "typescript": "^5.0.0"
   }
 }
