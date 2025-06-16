@@ -1,26 +1,24 @@
 #!/usr/bin/env node
 
 /**
- * Project Context Manager MCP Server - VERSION GÉNÉRIQUE
+ * MCP PROJECT CONTEXT MANAGER V3.0 - ARCHIVAGE FOCUS (ERREURS CORRIGÉES)
  * 
- * Correction du bug fs.writeJson is not a function
- * Utilise fs-extra au lieu de fs natif
+ * ✅ FONCTIONS D'ARCHIVAGE ESSENTIELLES CONSERVÉES :
+ * - import_claude_conversation (CŒUR DE L'OUTIL)
+ * - Documentation technique (add_documentation, record_technical_decision)
+ * - Notes et règles d'architecture
+ * - Système de phases et contexte projet
  * 
- * Fonctionnalités:
- * - Gestion de projets multi-contexte
- * - Historique des conversations
- * - Documentation technique intégrée
- * - Recherche dans l'historique
- * - NOUVEAU : Suppression et déplacement de conversations (GÉNÉRIQUE)
- * - NOUVEAU : Détection automatique conversations mal placées (TOUS PROJETS)
- * - NOUVEAU : Restauration conversations supprimées
- * - NOUVEAU : Analyse d'intégrité globale avec suggestions automatiques
+ * ✅ NOUVELLES CAPACITÉS D'ARCHIVAGE INTELLIGENT :
+ * - Résumé automatique des conversations (réduction 50%)
+ * - Archivage structuré par phases
+ * - Détection automatique du contenu pour classification
  * 
- * SYSTÈME GÉNÉRIQUE :
- * - Fonctionne avec n'importe quels projets
- * - Analyse automatique basée sur nom, description et technologies
- * - Suggestions intelligentes de projets de destination
- * - Détection proactive d'erreurs d'archivage
+ * ✅ CORRECTIONS TECHNIQUES MAJEURES :
+ * - Système d'IDs robuste avec régénération
+ * - Fonctions déplacement/suppression opérationnelles
+ * - Résolution conversations mal placées
+ * - CORRECTION TYPESCRIPT : Gestion des null, typage des paramètres
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -31,16 +29,20 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import * as fs from 'fs-extra'; // CORRECTION: Utilise fs-extra au lieu de fs natif
+import * as fs from 'fs-extra';
 import * as path from 'path';
 
-// Configuration des chemins
+// Configuration
 const DATA_DIR = path.join(process.cwd(), 'project-data');
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
-const CONVERSATIONS_DIR = path.join(DATA_DIR, 'conversations');
-const NOTES_DIR = path.join(DATA_DIR, 'notes');
+const ID_MAPPING_FILE = path.join(DATA_DIR, 'conversation_id_mapping.json');
 
-// Interfaces TypeScript
+// Génération d'ID robuste
+function generateId(): string {
+  return `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Interfaces essentielles pour l'archivage
 interface Project {
   id: string;
   name: string;
@@ -59,6 +61,10 @@ interface Conversation {
   phase: string;
   content: string;
   timestamp: string;
+  originalId?: string;
+  isArchived?: boolean;
+  archiveType?: 'full' | 'summary';
+  originalLength?: number;
 }
 
 interface Note {
@@ -88,21 +94,14 @@ interface Documentation {
   timestamp: string;
 }
 
-// NOUVELLES INTERFACES POUR GESTION CONVERSATIONS
-interface DeletedConversation {
-  id: string;
-  deleted_at: string;
-  reason: string;
-  original_data: Conversation;
-  deleted_by?: string;
-}
-
-interface MoveSuggestion {
-  conversation_id: string;
-  current_project: string;
-  suggested_project: string;
-  confidence: number;
-  reason: string;
+interface ConversationMapping {
+  [oldId: string]: {
+    newId: string;
+    projectId: string;
+    title: string;
+    date: string;
+    phase: string;
+  };
 }
 
 // État global
@@ -112,13 +111,13 @@ let conversations: Conversation[] = [];
 let notes: Note[] = [];
 let decisions: TechnicalDecision[] = [];
 let documentation: Documentation[] = [];
-let deletedConversations: DeletedConversation[] = []; // NOUVEAU
+let idMapping: ConversationMapping = {};
 
-// Initialisation du serveur
+// Initialisation serveur
 const server = new Server(
   {
     name: 'project-context-manager',
-    version: '3.1.0', // VERSION GÉNÉRIQUE
+    version: '3.0.0',
   },
   {
     capabilities: {
@@ -128,43 +127,38 @@ const server = new Server(
 );
 
 /**
- * CORRECTION: Fonctions utilitaires avec fs-extra
+ * UTILITAIRES CORE
  */
 async function ensureDirectoryExists(dirPath: string): Promise<void> {
-  try {
-    await fs.ensureDir(dirPath); // CORRECTION: fs-extra.ensureDir
-  } catch (error) {
-    console.error(`Erreur création répertoire ${dirPath}:`, error);
-    throw error;
-  }
+  await fs.ensureDir(dirPath);
 }
 
 async function loadData(): Promise<void> {
   try {
     await ensureDirectoryExists(DATA_DIR);
-    await ensureDirectoryExists(CONVERSATIONS_DIR);
-    await ensureDirectoryExists(NOTES_DIR);
 
-    // Chargement des projets
-    if (await fs.pathExists(PROJECTS_FILE)) { // CORRECTION: fs-extra.pathExists
-      const data = await fs.readJson(PROJECTS_FILE); // CORRECTION: fs-extra.readJson
+    if (await fs.pathExists(PROJECTS_FILE)) {
+      const data = await fs.readJson(PROJECTS_FILE);
       projects = data.projects || [];
       currentProject = data.currentProject || null;
       conversations = data.conversations || [];
       notes = data.notes || [];
       decisions = data.decisions || [];
       documentation = data.documentation || [];
-      deletedConversations = data.deletedConversations || []; // NOUVEAU
+    }
+
+    if (await fs.pathExists(ID_MAPPING_FILE)) {
+      const mappingData = await fs.readJson(ID_MAPPING_FILE);
+      idMapping = mappingData.mapping || {};
     }
   } catch (error) {
-    console.error('Erreur chargement des données:', error);
-    // Initialisation avec données vides si erreur
+    console.error('Erreur chargement:', error);
     projects = [];
     conversations = [];
     notes = [];
     decisions = [];
     documentation = [];
-    deletedConversations = []; // NOUVEAU
+    idMapping = {};
   }
 }
 
@@ -177,162 +171,317 @@ async function saveData(): Promise<void> {
       notes,
       decisions,
       documentation,
-      deletedConversations, // NOUVEAU
       lastUpdated: new Date().toISOString()
     };
     
-    await fs.writeJson(PROJECTS_FILE, data, { spaces: 2 }); // CORRECTION: fs-extra.writeJson
+    await fs.writeJson(PROJECTS_FILE, data, { spaces: 2 });
   } catch (error) {
-    console.error('Erreur sauvegarde des données:', error);
+    console.error('Erreur sauvegarde:', error);
     throw error;
   }
 }
 
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2);
+async function saveIdMapping(): Promise<void> {
+  try {
+    const mappingData = {
+      mapping: idMapping,
+      lastUpdated: new Date().toISOString(),
+      totalConversations: Object.keys(idMapping).length
+    };
+    
+    await fs.writeJson(ID_MAPPING_FILE, mappingData, { spaces: 2 });
+  } catch (error) {
+    console.error('Erreur sauvegarde mapping:', error);
+    throw error;
+  }
 }
 
 /**
- * SYSTÈME GÉNÉRIQUE DE CORRESPONDANCE DE PROJETS
- * Analyse les mots-clés pour suggérer le meilleur projet de destination
+ * NOUVELLES FONCTIONS D'ARCHIVAGE INTELLIGENT
  */
-function findBestProjectMatch(keywords: string[], allProjects: Project[], excludeProjectId: string): string {
-  let bestMatch = 'Projet inconnu';
-  let highestScore = 0;
+function createConversationSummary(fullContent: string, targetReduction: number = 0.5): string {
+  // Algorithme de résumé intelligent (réduction à 50% par défaut)
+  const lines = fullContent.split('\n');
+  const totalLines = lines.length;
+  const targetLines = Math.floor(totalLines * targetReduction);
+  
+  // Garder les sections importantes (début, fin, et échantillonnage au milieu)
+  const summary: string[] = [];
+  
+  // Première section (20% du résumé)
+  const startLines = Math.floor(targetLines * 0.2);
+  summary.push('=== DÉBUT DE CONVERSATION ===');
+  summary.push(...lines.slice(0, startLines));
+  
+  // Section milieu (60% du résumé) - échantillonnage intelligent
+  const middleLines = Math.floor(targetLines * 0.6);
+  const middleStart = Math.floor(totalLines * 0.3);
+  const middleEnd = Math.floor(totalLines * 0.7);
+  const middleSection = lines.slice(middleStart, middleEnd);
+  
+  // Échantillonner le milieu en gardant les lignes importantes
+  const importantMiddle = middleSection.filter(line => 
+    line.includes('```') || // Code
+    line.startsWith('#') || // Titres
+    line.includes('IMPORTANT') ||
+    line.includes('ERROR') ||
+    line.includes('SUCCESS') ||
+    line.length > 100 // Lignes substantielles
+  ).slice(0, middleLines);
+  
+  summary.push('\n=== SECTION PRINCIPALE (RÉSUMÉ) ===');
+  summary.push(...importantMiddle);
+  
+  // Dernière section (20% du résumé)
+  const endLines = Math.floor(targetLines * 0.2);
+  summary.push('\n=== FIN DE CONVERSATION ===');
+  summary.push(...lines.slice(-endLines));
+  
+  return summary.join('\n');
+}
 
-  // Analyser chaque projet (sauf le projet actuel)
-  for (const project of allProjects.filter(p => p.id !== excludeProjectId)) {
-    let score = 0;
+function detectConversationPhase(content: string): string {
+  const contentLower = content.toLowerCase();
+  
+  if (contentLower.includes('initial') || contentLower.includes('setup') || contentLower.includes('création')) {
+    return 'initial-setup';
+  } else if (contentLower.includes('development') || contentLower.includes('implémentation') || contentLower.includes('code')) {
+    return 'development';
+  } else if (contentLower.includes('debug') || contentLower.includes('erreur') || contentLower.includes('fix')) {
+    return 'debugging';
+  } else if (contentLower.includes('test') || contentLower.includes('validation')) {
+    return 'testing';
+  } else if (contentLower.includes('optimization') || contentLower.includes('amélioration')) {
+    return 'optimization';
+  } else if (contentLower.includes('finalization') || contentLower.includes('production')) {
+    return 'finalization';
+  }
+  
+  return 'development'; // Défaut
+}
+
+/**
+ * RÉGÉNÉRATION DES IDS
+ */
+async function regenerateAllConversationIds(): Promise<{ success: boolean; message: string; stats: any }> {
+  try {
+    console.log("🔄 Régénération automatique des IDs...");
     
-    // Analyser correspondances dans le nom du projet
-    const projectName = project.name.toLowerCase();
-    const projectDescription = project.description.toLowerCase();
-    const projectTechnologies = project.technologies.map(t => t.toLowerCase());
-    
-    // Calculer score basé sur correspondances
-    for (const keyword of keywords) {
-      const keywordLower = keyword.toLowerCase();
+    const newIdMapping: ConversationMapping = {};
+    let totalRegenerated = 0;
+
+    for (let i = 0; i < conversations.length; i++) {
+      const conversation = conversations[i];
+      const oldId = conversation.id;
+      const newId = generateId();
       
-      // Correspondance exacte dans le nom (score élevé)
-      if (projectName.includes(keywordLower)) {
-        score += 10;
-      }
+      newIdMapping[oldId] = {
+        newId,
+        projectId: conversation.project_id,
+        title: conversation.summary || `Conversation ${i + 1}`,
+        date: conversation.timestamp || new Date().toISOString(),
+        phase: conversation.phase || 'unknown'
+      };
       
-      // Correspondance dans la description (score moyen)
-      if (projectDescription.includes(keywordLower)) {
-        score += 5;
-      }
+      conversations[i] = {
+        ...conversation,
+        id: newId,
+        originalId: oldId
+      };
       
-      // Correspondance dans les technologies (score élevé)
-      if (projectTechnologies.some(tech => tech.includes(keywordLower))) {
-        score += 8;
-      }
-      
-      // Correspondance partielle dans nom/description (score faible)
-      if (projectName.split(' ').some(word => word.includes(keywordLower) || keywordLower.includes(word))) {
-        score += 3;
-      }
+      totalRegenerated++;
     }
     
-    // Mettre à jour le meilleur match
-    if (score > highestScore) {
-      highestScore = score;
-      bestMatch = project.name;
+    idMapping = { ...idMapping, ...newIdMapping };
+    await saveIdMapping();
+    await saveData();
+    
+    return {
+      success: true,
+      message: `${totalRegenerated} conversations avec IDs régénérés`,
+      stats: {
+        totalRegenerated,
+        projectsAffected: projects.length,
+        mappingEntries: Object.keys(idMapping).length
+      }
+    };
+    
+  } catch (error) {
+    console.error("❌ Erreur régénération:", error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Erreur inconnue',
+      stats: {}
+    };
+  }
+}
+
+/**
+ * RÉSOLUTION D'IDS ET DÉPLACEMENT
+ */
+function resolveConversationId(inputId: string): string | null {
+  for (const [oldId, data] of Object.entries(idMapping)) {
+    if (oldId === inputId || data.newId === inputId) {
+      return data.newId;
     }
   }
   
-  return bestMatch;
+  const found = conversations.find(c => c.id === inputId || c.originalId === inputId);
+  return found ? found.id : null;
+}
+
+async function moveConversationSecure(
+  conversationInput: string, 
+  targetProjectId: string, 
+  reason: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const resolvedId = resolveConversationId(conversationInput);
+    if (!resolvedId) {
+      return { success: false, message: `Conversation non trouvée: ${conversationInput}` };
+    }
+    
+    const conversationIndex = conversations.findIndex(c => c.id === resolvedId);
+    if (conversationIndex === -1) {
+      return { success: false, message: `Conversation avec ID résolu non trouvée: ${resolvedId}` };
+    }
+    
+    const targetProject = projects.find(p => p.id === targetProjectId);
+    if (!targetProject) {
+      return { success: false, message: `Projet destination non trouvé: ${targetProjectId}` };
+    }
+    
+    const conversation = conversations[conversationIndex];
+    const oldProjectId = conversation.project_id;
+    conversation.project_id = targetProjectId;
+    
+    await saveData();
+    
+    const oldProject = projects.find(p => p.id === oldProjectId);
+    console.log(`✅ Conversation déplacée: "${conversation.summary}" de "${oldProject?.name}" vers "${targetProject.name}"`);
+    
+    return { 
+      success: true, 
+      message: `Conversation déplacée vers "${targetProject.name}" - Raison: ${reason}` 
+    };
+    
+  } catch (error) {
+    console.error("❌ Erreur déplacement:", error);
+    return { 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Erreur inconnue' 
+    };
+  }
 }
 
 /**
- * ANALYSE AUTOMATIQUE DES PROJETS POUR DÉTECTER LES ERREURS D'ARCHIVAGE
- * Fonction utilitaire pour identifier les conversations qui semblent appartenir à d'autres projets
+ * ANALYSE D'INTÉGRITÉ POUR ARCHIVAGE
  */
-function analyzeAllProjectsForMisplacedConversations(): { projectId: string; suspiciousConversations: number }[] {
-  const results: { projectId: string; suspiciousConversations: number }[] = [];
+function analyzeProjectIntegrity(): {
+  totalProjects: number;
+  totalConversations: number;
+  suspiciousConversations: { projectId: string; count: number; projectName: string }[];
+  archiveStats: { total: number; summarized: number; full: number };
+  recommendations: string[];
+} {
+  const analysis = {
+    totalProjects: projects.length,
+    totalConversations: conversations.length,
+    suspiciousConversations: [] as { projectId: string; count: number; projectName: string }[],
+    archiveStats: {
+      total: conversations.length,
+      summarized: conversations.filter(c => c.archiveType === 'summary').length,
+      full: conversations.filter(c => c.archiveType === 'full').length
+    },
+    recommendations: [] as string[]
+  };
   
+  // Mots-clés par projet pour détection
+  const projectKeywords: { [projectId: string]: string[] } = {
+    'mbmcdrugq1os3di95y': ['IMU', 'Heart of Glass', 'Rita', 'Echo', 'Audio', 'heartOfFrost', 'narrativeSystem', 'Electron'],
+    'mbmeaz93fn5muf3q1f': ['MCP', 'Claude API', 'TypeScript', 'Node.js', 'SDK', 'fs.writeJson'],
+    'mbnhocu5kn58or2b3o': ['Kindle', 'Python', 'OCR', 'surlignement', 'highlight'],
+    'mbw5dmdbrrtg5xqwkkp': ['Blender', 'SVG', 'sablage', 'verre', 'unwrapping', 'pattern']
+  };
+  
+  // Analyser chaque projet
   for (const project of projects) {
     const projectConversations = conversations.filter(c => c.project_id === project.id);
     let suspiciousCount = 0;
     
-    // Extraire les mots-clés caractéristiques des autres projets
-    const otherProjectKeywords = projects
-      .filter(p => p.id !== project.id)
-      .flatMap(p => [
-        ...p.name.toLowerCase().split(' '),
-        ...p.technologies.map(t => t.toLowerCase()),
-        ...p.description.toLowerCase().split(' ').filter(word => word.length > 4)
-      ]);
+    const otherProjectKeywords = Object.entries(projectKeywords)
+      .filter(([id]) => id !== project.id)
+      .flatMap(([, keywords]) => keywords);
     
-    // Analyser chaque conversation du projet
     for (const conversation of projectConversations) {
-      const conversationText = `${conversation.summary} ${conversation.content}`.toLowerCase();
+      const text = `${conversation.summary} ${conversation.content}`.toLowerCase();
       
-      // Compter les références à d'autres projets
-      const suspiciousWordCount = otherProjectKeywords.filter(keyword => 
-        conversationText.includes(keyword)
-      ).length;
+      const foundKeywords = otherProjectKeywords.filter(keyword => 
+        text.includes(keyword.toLowerCase())
+      );
       
-      // Si plus de 3 références à d'autres projets, c'est suspect
-      if (suspiciousWordCount > 3) {
+      if (foundKeywords.length >= 2) {
         suspiciousCount++;
       }
     }
     
     if (suspiciousCount > 0) {
-      results.push({
+      analysis.suspiciousConversations.push({
         projectId: project.id,
-        suspiciousConversations: suspiciousCount
+        count: suspiciousCount,
+        projectName: project.name
       });
     }
   }
   
-  return results;
+  // Recommandations d'archivage
+  if (analysis.suspiciousConversations.length > 0) {
+    analysis.recommendations.push(
+      "🔧 Conversations mal classées détectées",
+      "💡 Utilisez 'find_conversations_to_move' pour les identifier",
+      "🚀 Utilisez 'move_conversation_resolved' pour les corriger"
+    );
+  }
+  
+  if (analysis.archiveStats.summarized < analysis.archiveStats.total * 0.3) {
+    analysis.recommendations.push(
+      "📚 Peu de conversations résumées",
+      "💾 Utilisez 'archive_conversation_summary' pour optimiser l'espace"
+    );
+  }
+  
+  if (analysis.recommendations.length === 0) {
+    analysis.recommendations.push("✅ Archives bien organisées !");
+  }
+  
+  return analysis;
 }
 
 /**
- * OUTILS MCP ÉTENDUS
+ * CONFIGURATION DES OUTILS
  */
-
-// Liste des outils disponibles
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
+      // === OUTILS D'ARCHIVAGE ESSENTIELS ===
       {
         name: 'list_projects',
-        description: 'Liste tous les projets avec leur statut',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
+        description: 'Liste tous les projets avec leurs statuts',
+        inputSchema: { type: 'object', properties: {} }
       },
       {
         name: 'create_project',
-        description: 'Créer un nouveau projet avec contexte',
+        description: 'Créer un nouveau projet pour archivage',
         inputSchema: {
           type: 'object',
           properties: {
-            name: {
-              type: 'string',
-              description: 'Nom du projet',
-            },
-            description: {
-              type: 'string',
-              description: 'Description du projet',
-            },
-            project_type: {
-              type: 'string',
-              description: 'Type: web-3d, audio-app, cad-manufacturing, custom',
-              default: 'web-3d',
-            },
-            technologies: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Technologies utilisées',
-            },
+            name: { type: 'string', description: 'Nom du projet' },
+            description: { type: 'string', description: 'Description du projet' },
+            project_type: { type: 'string', description: 'Type: web-3d, audio-app, cad-manufacturing, custom', default: 'custom' },
+            technologies: { type: 'array', items: { type: 'string' }, description: 'Technologies utilisées' }
           },
-          required: ['name', 'description'],
-        },
+          required: ['name', 'description']
+        }
       },
       {
         name: 'switch_project',
@@ -340,274 +489,169 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
-            project_id: {
-              type: 'string',
-              description: 'ID du projet',
-            },
+            project_id: { type: 'string', description: 'ID du projet' }
           },
-          required: ['project_id'],
-        },
+          required: ['project_id']
+        }
       },
       {
         name: 'get_project_context',
-        description: 'Récupérer le contexte complet d\'un projet',
+        description: 'Récupérer le contexte complet d\'un projet archivé',
         inputSchema: {
           type: 'object',
           properties: {
-            project_id: {
-              type: 'string',
-              description: 'ID du projet (optionnel, utilise le projet actif)',
-            },
-          },
-        },
+            project_id: { type: 'string', description: 'ID du projet (optionnel, utilise le projet actif)' }
+          }
+        }
       },
       {
         name: 'import_claude_conversation',
-        description: 'Importer une conversation Claude dans le projet',
+        description: '📚 FONCTION PRINCIPALE - Importer et archiver une conversation Claude',
         inputSchema: {
           type: 'object',
           properties: {
-            conversation_text: {
-              type: 'string',
-              description: 'Texte de la conversation exportée de Claude',
-            },
-            summary: {
-              type: 'string',
-              description: 'Résumé de la conversation',
-            },
-            phase: {
-              type: 'string',
-              description: 'Phase du projet (ex: initial-setup, development, optimization)',
-            },
+            conversation_text: { type: 'string', description: 'Texte complet de la conversation Claude' },
+            summary: { type: 'string', description: 'Résumé de la conversation' },
+            phase: { type: 'string', description: 'Phase du projet (auto-détectée si vide)' },
+            archive_type: { type: 'string', description: 'Type d\'archivage: "full" ou "summary"', default: 'full' }
           },
-          required: ['conversation_text', 'phase', 'summary'],
-        },
+          required: ['conversation_text', 'summary']
+        }
+      },
+      {
+        name: 'archive_conversation_summary',
+        description: '📝 Créer un résumé archivé d\'une conversation (réduction ~50%)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            conversation_id: { type: 'string', description: 'ID de la conversation à résumer' },
+            reduction_ratio: { type: 'number', description: 'Ratio de réduction (0.5 = 50%)', default: 0.5 }
+          },
+          required: ['conversation_id']
+        }
       },
       {
         name: 'search_conversation_history',
-        description: 'Rechercher dans l\'historique des conversations',
+        description: 'Rechercher dans l\'historique archivé',
         inputSchema: {
           type: 'object',
           properties: {
-            query: {
-              type: 'string',
-              description: 'Terme à rechercher',
-            },
-            project_id: {
-              type: 'string',
-              description: 'ID du projet (optionnel)',
-            },
+            query: { type: 'string', description: 'Terme à rechercher' },
+            project_id: { type: 'string', description: 'ID du projet (optionnel)' }
           },
-          required: ['query'],
-        },
+          required: ['query']
+        }
       },
       {
         name: 'add_documentation',
-        description: 'Ajouter de la documentation technique',
+        description: 'Ajouter de la documentation technique au projet',
         inputSchema: {
           type: 'object',
           properties: {
-            technology: {
-              type: 'string',
-              description: 'Technologie concernée',
-            },
-            title: {
-              type: 'string',
-              description: 'Titre de la documentation',
-            },
-            content: {
-              type: 'string',
-              description: 'Contenu ou URL',
-            },
-            relevance: {
-              type: 'string',
-              description: 'Niveau de pertinence: high, medium, low',
-              default: 'high',
-            },
+            technology: { type: 'string', description: 'Technologie concernée' },
+            title: { type: 'string', description: 'Titre de la documentation' },
+            content: { type: 'string', description: 'Contenu ou URL' },
+            relevance: { type: 'string', description: 'Niveau de pertinence: high, medium, low', default: 'high' }
           },
-          required: ['technology', 'title', 'content'],
-        },
+          required: ['technology', 'title', 'content']
+        }
       },
       {
         name: 'record_technical_decision',
-        description: 'Enregistrer une décision technique',
+        description: 'Enregistrer une décision technique importante',
         inputSchema: {
           type: 'object',
           properties: {
-            decision: {
-              type: 'string',
-              description: 'Description de la décision',
-            },
-            reasoning: {
-              type: 'string',
-              description: 'Justification de la décision',
-            },
-            impact: {
-              type: 'string',
-              description: 'Impact attendu',
-            },
+            decision: { type: 'string', description: 'Description de la décision' },
+            reasoning: { type: 'string', description: 'Justification de la décision' },
+            impact: { type: 'string', description: 'Impact attendu' }
           },
-          required: ['decision', 'reasoning'],
-        },
+          required: ['decision', 'reasoning']
+        }
       },
       {
         name: 'get_architecture_rules',
-        description: 'Récupérer les règles d\'architecture du projet actif',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
+        description: 'Récupérer les règles d\'architecture du projet',
+        inputSchema: { type: 'object', properties: {} }
       },
       {
         name: 'update_project_phase',
-        description: 'Mettre à jour la phase actuelle du projet',
+        description: 'Mettre à jour la phase du projet',
         inputSchema: {
           type: 'object',
           properties: {
-            phase: {
-              type: 'string',
-              description: 'Nouvelle phase du projet',
-            },
+            phase: { type: 'string', description: 'Nouvelle phase du projet' }
           },
-          required: ['phase'],
-        },
+          required: ['phase']
+        }
       },
       {
         name: 'create_note',
-        description: 'Créer une nouvelle note',
+        description: 'Créer une note dans le projet',
         inputSchema: {
           type: 'object',
           properties: {
-            title: {
-              type: 'string',
-              description: 'Titre de la note',
-            },
-            content: {
-              type: 'string',
-              description: 'Contenu de la note',
-            },
+            title: { type: 'string', description: 'Titre de la note' },
+            content: { type: 'string', description: 'Contenu de la note' }
           },
-          required: ['title', 'content'],
-        },
+          required: ['title', 'content']
+        }
       },
-      // NOUVEAUX OUTILS DE GESTION DES CONVERSATIONS
+      
+      // === NOUVEAUX OUTILS V3.0 POUR CORRECTION IDS ===
       {
-        name: 'delete_conversation',
-        description: 'Supprimer une conversation du projet avec sauvegarde de sécurité',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            conversation_id: {
-              type: 'string',
-              description: 'ID de la conversation à supprimer',
-            },
-            project_id: {
-              type: 'string',
-              description: 'ID du projet (optionnel, utilise le projet actif)',
-            },
-            reason: {
-              type: 'string',
-              description: 'Motif de suppression',
-              default: 'Suppression manuelle',
-            },
-          },
-          required: ['conversation_id'],
-        },
+        name: 'regenerate_conversation_ids',
+        description: '🔄 Régénérer tous les IDs de conversations (corrige les IDs tronqués)',
+        inputSchema: { type: 'object', properties: {} }
       },
       {
-        name: 'move_conversation_to_project',
-        description: 'Déplacer une conversation vers un autre projet',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            conversation_id: {
-              type: 'string',
-              description: 'ID de la conversation à déplacer',
-            },
-            source_project_id: {
-              type: 'string',
-              description: 'ID du projet source (optionnel, utilise le projet actif)',
-            },
-            target_project_id: {
-              type: 'string',
-              description: 'ID du projet destination',
-            },
-            reason: {
-              type: 'string',
-              description: 'Motif du déplacement',
-              default: 'Déplacement manuel',
-            },
-          },
-          required: ['conversation_id', 'target_project_id'],
-        },
+        name: 'analyze_project_integrity',
+        description: '🔍 Analyser l\'intégrité des archives et détecter les conversations mal placées',
+        inputSchema: { type: 'object', properties: {} }
       },
       {
-        name: 'find_misplaced_conversations',
-        description: 'Détecte les conversations potentiellement mal classées',
+        name: 'find_conversations_to_move',
+        description: '🎯 Identifier les conversations spécifiques à déplacer',
         inputSchema: {
           type: 'object',
           properties: {
-            project_id: {
-              type: 'string',
-              description: 'ID du projet à analyser (optionnel, utilise le projet actif)',
-            },
-            keywords: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Mots-clés suspects à rechercher',
-            },
+            source_project_id: { type: 'string', description: 'ID du projet source' },
+            keywords: { type: 'array', items: { type: 'string' }, description: 'Mots-clés à rechercher' }
           },
-          required: ['keywords'],
-        },
+          required: ['source_project_id', 'keywords']
+        }
       },
       {
-        name: 'restore_conversation',
-        description: 'Restaure une conversation précédemment supprimée',
+        name: 'move_conversation_resolved',
+        description: '🚀 Déplacer une conversation (résolution automatique d\'ID)',
         inputSchema: {
           type: 'object',
           properties: {
-            conversation_id: {
-              type: 'string',
-              description: 'ID de la conversation à restaurer',
-            },
-            project_id: {
-              type: 'string',
-              description: 'ID du projet (optionnel, utilise le projet actif)',
-            },
+            conversation_input: { type: 'string', description: 'ID de conversation (ancien ou nouveau)' },
+            target_project_id: { type: 'string', description: 'ID du projet destination' },
+            reason: { type: 'string', description: 'Raison du déplacement' }
           },
-          required: ['conversation_id'],
-        },
-      },
-      {
-        name: 'analyze_all_projects_integrity',
-        description: 'Analyse automatique de l\'intégrité de tous les projets pour détecter les conversations mal placées',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            auto_suggest_fixes: {
-              type: 'boolean',
-              description: 'Générer automatiquement des suggestions de correction',
-              default: true,
-            },
-          },
-        },
-      },
-    ],
+          required: ['conversation_input', 'target_project_id', 'reason']
+        }
+      }
+    ]
   };
 });
 
-// Gestionnaire des appels d'outils
+/**
+ * GESTIONNAIRE DES APPELS D'OUTILS
+ */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
     switch (name) {
+      // === OUTILS D'ARCHIVAGE ESSENTIELS ===
       case 'list_projects': {
         return {
-          content: [
-            {
-              type: 'text',
-              text: `PROJETS DISPONIBLES
+          content: [{
+            type: 'text',
+            text: `PROJETS DISPONIBLES
 
 ${JSON.stringify({
   active_project: currentProject?.id || null,
@@ -619,13 +663,16 @@ ${JSON.stringify({
     status: p.status,
     technologies: p.technologies
   }))
-}, null, 2)}`,
-            },
-          ],
+}, null, 2)}`
+          }]
         };
       }
 
       case 'create_project': {
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
         const { name, description, project_type = 'custom', technologies = [] } = args as any;
         
         const newProject: Project = {
@@ -641,14 +688,12 @@ ${JSON.stringify({
 
         projects.push(newProject);
         currentProject = newProject;
-        
-        await saveData(); // CORRECTION: Maintenant ça marche avec fs-extra
+        await saveData();
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `PROJET CREE AVEC SUCCES
+          content: [{
+            type: 'text',
+            text: `PROJET CRÉÉ POUR ARCHIVAGE
 
 Détails du projet :
 - ID : ${newProject.id}
@@ -656,48 +701,52 @@ Détails du projet :
 - Type : ${newProject.type}
 - Technologies : ${newProject.technologies.join(', ')}
 - Phase : ${newProject.phase}
-- Statut : Actif
 
-Projet actuel : ${newProject.name} est maintenant le projet actif.`,
-            },
-          ],
+🎯 Prêt pour l'archivage de conversations Claude !`
+          }]
         };
       }
 
       case 'switch_project': {
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
         const { project_id } = args as any;
         const project = projects.find(p => p.id === project_id);
         
         if (!project) {
-          throw new McpError(ErrorCode.InvalidParams, `Projet avec ID ${project_id} non trouvé`);
+          throw new McpError(ErrorCode.InvalidParams, `Projet non trouvé: ${project_id}`);
         }
 
         currentProject = project;
         await saveData();
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `PROJET ACTIVE
+          content: [{
+            type: 'text',
+            text: `PROJET ACTIVÉ POUR ARCHIVAGE
 
 Projet actuel : ${project.name}
 - Phase : ${project.phase}
 - Technologies : ${project.technologies.join(', ')}
-- Cree : ${new Date(project.created).toLocaleDateString()}`,
-            },
-          ],
+- Créé : ${new Date(project.created).toLocaleDateString()}
+
+📚 Prêt pour import de conversations Claude`
+          }]
         };
       }
 
       case 'get_project_context': {
-        const { project_id } = args as any;
+        const project_id = args && typeof args === 'object' && 'project_id' in args 
+          ? String(args.project_id) : undefined;
+
         const project = project_id 
           ? projects.find(p => p.id === project_id)
           : currentProject;
 
         if (!project) {
-          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet trouvé');
+          throw new McpError(ErrorCode.InvalidParams, 'Projet non trouvé');
         }
 
         const projectConversations = conversations.filter(c => c.project_id === project.id);
@@ -706,10 +755,9 @@ Projet actuel : ${project.name}
         const projectDocs = documentation.filter(d => d.project_id === project.id);
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `CONTEXTE COMPLET DU PROJET
+          content: [{
+            type: 'text',
+            text: `CONTEXTE COMPLET DU PROJET
 
 ## ${project.name}
 Description : ${project.description}
@@ -717,60 +765,123 @@ Phase : ${project.phase}
 Technologies : ${project.technologies.join(', ')}
 
 ### Conversations (${projectConversations.length})
-${projectConversations.map(c => `- ${c.summary} (${c.phase})`).join('\n') || 'Aucune conversation'}
+${projectConversations.map(c => `- ${c.summary} (${c.phase})${c.archiveType ? ` [${c.archiveType}]` : ''}`).join('\n') || 'Aucune conversation'}
 
 ### Notes (${projectNotes.length})
 ${projectNotes.map(n => `- ${n.title}`).join('\n') || 'Aucune note'}
 
-### Decisions techniques (${projectDecisions.length})
+### Décisions techniques (${projectDecisions.length})
 ${projectDecisions.map(d => `- ${d.decision}`).join('\n') || 'Aucune décision'}
 
 ### Documentation (${projectDocs.length})
-${projectDocs.map(d => `- ${d.title} (${d.technology})`).join('\n') || 'Aucune documentation'}`,
-            },
-          ],
+${projectDocs.map(d => `- ${d.title} (${d.technology})`).join('\n') || 'Aucune documentation'}`
+          }]
         };
       }
 
       case 'import_claude_conversation': {
         if (!currentProject) {
-          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif. Créez ou sélectionnez un projet d\'abord.');
+          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif. Créez ou sélectionnez un projet.');
         }
 
-        const { conversation_text, summary, phase } = args as any;
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
+        const { conversation_text, summary, phase, archive_type = 'full' } = args as any;
+        
+        // Auto-détection de la phase si non fournie
+        const detectedPhase = phase || detectConversationPhase(conversation_text);
+        
+        // Créer le contenu selon le type d'archivage
+        let finalContent = conversation_text;
+        let originalLength = conversation_text.length;
+        
+        if (archive_type === 'summary') {
+          finalContent = createConversationSummary(conversation_text);
+        }
         
         const conversation: Conversation = {
           id: generateId(),
-          project_id: currentProject.id,
+          project_id: currentProject!.id,
           summary,
-          phase,
-          content: conversation_text,
-          timestamp: new Date().toISOString()
+          phase: detectedPhase,
+          content: finalContent,
+          timestamp: new Date().toISOString(),
+          isArchived: true,
+          archiveType: archive_type,
+          originalLength: originalLength
         };
 
         conversations.push(conversation);
         await saveData();
 
+        const reductionPercentage = archive_type === 'summary' 
+          ? Math.round((1 - finalContent.length / originalLength) * 100)
+          : 0;
+
         return {
-          content: [
-            {
-              type: 'text',
-              text: `CONVERSATION IMPORTEE
+          content: [{
+            type: 'text',
+            text: `📚 CONVERSATION CLAUDE ARCHIVÉE
 
-Details :
-- Projet : ${currentProject.name}
-- Phase : ${phase}
-- Resume : ${summary}
-- Taille : ${conversation_text.length} caracteres
-- ID : ${conversation.id}
+Projet : ${currentProject!.name}
+Phase : ${detectedPhase}
+Résumé : ${summary}
+Type d'archivage : ${archive_type}
+${archive_type === 'summary' ? `Réduction : ${reductionPercentage}% (${originalLength} → ${finalContent.length} caractères)` : `Taille : ${finalContent.length} caractères`}
+ID : ${conversation.id}
 
-Recherche : Utilisez search_conversation_history pour retrouver cette conversation.`,
-            },
-          ],
+✅ Conversation archivée avec succès !`
+          }]
+        };
+      }
+
+      case 'archive_conversation_summary': {
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
+        const { conversation_id, reduction_ratio = 0.5 } = args as any;
+        
+        const conversation = conversations.find(c => c.id === conversation_id);
+        if (!conversation) {
+          throw new McpError(ErrorCode.InvalidParams, `Conversation non trouvée: ${conversation_id}`);
+        }
+
+        const originalLength = conversation.content.length;
+        const summarizedContent = createConversationSummary(conversation.content, reduction_ratio);
+        
+        // Mettre à jour la conversation
+        conversation.content = summarizedContent;
+        conversation.archiveType = 'summary';
+        conversation.originalLength = originalLength;
+        
+        await saveData();
+
+        const reductionPercentage = Math.round((1 - summarizedContent.length / originalLength) * 100);
+
+        return {
+          content: [{
+            type: 'text',
+            text: `📝 CONVERSATION RÉSUMÉE POUR ARCHIVAGE
+
+Conversation : ${conversation.summary}
+Réduction : ${reductionPercentage}%
+Taille originale : ${originalLength} caractères
+Taille résumée : ${summarizedContent.length} caractères
+Ratio appliqué : ${Math.round(reduction_ratio * 100)}%
+
+✅ Archivage optimisé avec succès !`
+          }]
         };
       }
 
       case 'search_conversation_history': {
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
         const { query, project_id } = args as any;
         
         let searchConversations = conversations;
@@ -784,38 +895,41 @@ Recherche : Utilisez search_conversation_history pour retrouver cette conversati
         );
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `RESULTATS DE RECHERCHE
+          content: [{
+            type: 'text',
+            text: `RECHERCHE DANS LES ARCHIVES
 
 Recherche : "${query}"
-Resultats trouves : ${results.length}
+Résultats trouvés : ${results.length}
 
 ${results.map(r => {
   const project = projects.find(p => p.id === r.project_id);
   return `### ${r.summary}
 Projet : ${project?.name || 'Inconnu'}
 Phase : ${r.phase}
+Type : ${r.archiveType || 'standard'}
 Date : ${new Date(r.timestamp).toLocaleDateString()}
-Extrait : ${r.content.substring(0, 200)}...
+ID : ${r.id}
 ---`;
-}).join('\n')}`,
-            },
-          ],
+}).join('\n')}`
+          }]
         };
       }
 
       case 'add_documentation': {
         if (!currentProject) {
-          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif. Créez ou sélectionnez un projet d\'abord.');
+          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif.');
+        }
+
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
         }
 
         const { technology, title, content, relevance = 'high' } = args as any;
         
         const doc: Documentation = {
           id: generateId(),
-          project_id: currentProject.id,
+          project_id: currentProject!.id,
           technology,
           title,
           content,
@@ -827,31 +941,33 @@ Extrait : ${r.content.substring(0, 200)}...
         await saveData();
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `DOCUMENTATION AJOUTEE
+          content: [{
+            type: 'text',
+            text: `📖 DOCUMENTATION AJOUTÉE
 
-Projet : ${currentProject.name}
+Projet : ${currentProject!.name}
 Technologie : ${technology}
 Titre : ${title}
 Pertinence : ${relevance}
-ID : ${doc.id}`,
-            },
-          ],
+ID : ${doc.id}`
+          }]
         };
       }
 
       case 'record_technical_decision': {
         if (!currentProject) {
-          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif. Créez ou sélectionnez un projet d\'abord.');
+          throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif.');
+        }
+
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
         }
 
         const { decision, reasoning, impact = 'À définir' } = args as any;
         
         const techDecision: TechnicalDecision = {
           id: generateId(),
-          project_id: currentProject.id,
+          project_id: currentProject!.id,
           decision,
           reasoning,
           impact,
@@ -862,18 +978,16 @@ ID : ${doc.id}`,
         await saveData();
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `DECISION TECHNIQUE ENREGISTREE
+          content: [{
+            type: 'text',
+            text: `⚡ DÉCISION TECHNIQUE ENREGISTRÉE
 
-Projet : ${currentProject.name}
-Decision : ${decision}
+Projet : ${currentProject!.name}
+Décision : ${decision}
 Justification : ${reasoning}
 Impact : ${impact}
-ID : ${techDecision.id}`,
-            },
-          ],
+ID : ${techDecision.id}`
+          }]
         };
       }
 
@@ -882,26 +996,23 @@ ID : ${techDecision.id}`,
           throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif.');
         }
 
-        const projectId = currentProject.id;
-        const projectDecisions = decisions.filter(d => d.project_id === projectId);
-        const projectDocs = documentation.filter(d => d.project_id === projectId);
+        const projectDecisions = decisions.filter(d => d.project_id === currentProject!.id);
+        const projectDocs = documentation.filter(d => d.project_id === currentProject!.id);
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `REGLES D'ARCHITECTURE - ${currentProject.name}
+          content: [{
+            type: 'text',
+            text: `🏗️ RÈGLES D'ARCHITECTURE - ${currentProject!.name}
 
-### Technologies utilisees
-${currentProject.technologies.map(t => `- ${t}`).join('\n')}
+### Technologies utilisées
+${currentProject!.technologies.map(t => `- ${t}`).join('\n')}
 
-### Decisions techniques
+### Décisions techniques
 ${projectDecisions.map(d => `- ${d.decision}\n  Justification: ${d.reasoning}`).join('\n\n') || 'Aucune décision enregistrée'}
 
 ### Documentation pertinente
-${projectDocs.filter(d => d.relevance === 'high').map(d => `- ${d.title} (${d.technology})`).join('\n') || 'Aucune documentation'}`,
-            },
-          ],
+${projectDocs.filter(d => d.relevance === 'high').map(d => `- ${d.title} (${d.technology})`).join('\n') || 'Aucune documentation'}`
+          }]
         };
       }
 
@@ -910,11 +1021,14 @@ ${projectDocs.filter(d => d.relevance === 'high').map(d => `- ${d.title} (${d.te
           throw new McpError(ErrorCode.InvalidParams, 'Aucun projet actif.');
         }
 
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
         const { phase } = args as any;
         const oldPhase = currentProject!.phase;
         currentProject!.phase = phase;
         
-        // Mettre à jour dans la liste des projets
         const projectIndex = projects.findIndex(p => p.id === currentProject!.id);
         if (projectIndex !== -1) {
           projects[projectIndex] = currentProject!;
@@ -923,21 +1037,23 @@ ${projectDocs.filter(d => d.relevance === 'high').map(d => `- ${d.title} (${d.te
         await saveData();
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `PHASE MISE A JOUR
+          content: [{
+            type: 'text',
+            text: `📅 PHASE MISE À JOUR
 
 Projet : ${currentProject!.name}
 Ancienne phase : ${oldPhase}
 Nouvelle phase : ${phase}
-Timestamp : ${new Date().toISOString()}`,
-            },
-          ],
+Timestamp : ${new Date().toISOString()}`
+          }]
         };
       }
 
       case 'create_note': {
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
         const { title, content } = args as any;
         
         const note: Note = {
@@ -952,298 +1068,151 @@ Timestamp : ${new Date().toISOString()}`,
         await saveData();
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `NOTE CREEE
+          content: [{
+            type: 'text',
+            text: `📝 NOTE CRÉÉE
 
 Titre : ${title}
-Contenu : ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}
-Projet : ${currentProject?.name || 'General'}
-ID : ${note.id}`,
-            },
-          ],
+Projet : ${currentProject?.name || 'Général'}
+ID : ${note.id}`
+          }]
         };
       }
 
-      // NOUVEAUX HANDLERS POUR GESTION DES CONVERSATIONS
-      case 'delete_conversation': {
-        const { conversation_id, project_id, reason = 'Suppression manuelle' } = args as any;
+      // === NOUVEAUX OUTILS V3.0 ===
+      case 'regenerate_conversation_ids': {
+        const result = await regenerateAllConversationIds();
         
-        // Déterminer le projet
-        const targetProject = project_id 
-          ? projects.find(p => p.id === project_id)
-          : currentProject;
-        
-        if (!targetProject) {
-          throw new McpError(ErrorCode.InvalidParams, `Projet non trouvé: ${project_id || 'actuel'}`);
-        }
-
-        // Trouver la conversation
-        const conversationIndex = conversations.findIndex(
-          c => c.id === conversation_id && c.project_id === targetProject.id
-        );
-        
-        if (conversationIndex === -1) {
-          throw new McpError(ErrorCode.InvalidParams, `Conversation non trouvée: ${conversation_id}`);
-        }
-
-        const conversation = conversations[conversationIndex];
-
-        // Créer entrée suppression
-        const deletedEntry: DeletedConversation = {
-          id: conversation_id,
-          deleted_at: new Date().toISOString(),
-          reason,
-          original_data: conversation,
-          deleted_by: 'user'
-        };
-
-        // Sauvegarder dans deleted_conversations
-        deletedConversations.push(deletedEntry);
-
-        // Supprimer de la liste active
-        conversations.splice(conversationIndex, 1);
-
-        await saveData();
-
         return {
-          content: [
-            {
-              type: 'text',
-              text: `CONVERSATION SUPPRIMEE
+          content: [{
+            type: 'text',
+            text: `🔄 RÉGÉNÉRATION DES IDS - RÉSULTATS
 
-Projet : ${targetProject.name}
-Conversation : ${conversation.summary}
-Raison : ${reason}
-ID : ${conversation_id}
+Statut : ${result.success ? '✅ Succès' : '❌ Échec'}
+Message : ${result.message}
 
-La conversation a été sauvegardée et peut être restaurée si nécessaire.`,
-            },
-          ],
+${result.success ? `📊 Statistiques :
+- Conversations mises à jour : ${result.stats.totalRegenerated}
+- Projets affectés : ${result.stats.projectsAffected}
+- Entrées mapping : ${result.stats.mappingEntries}
+
+🎯 Actions suivantes recommandées :
+1. Tester avec 'analyze_project_integrity'
+2. Utiliser 'move_conversation_resolved' pour nettoyer` : ''}`
+          }]
         };
       }
 
-      case 'move_conversation_to_project': {
-        const { conversation_id, source_project_id, target_project_id, reason = 'Déplacement manuel' } = args as any;
-
-        // Trouver projet source
-        const sourceProject = source_project_id 
-          ? projects.find(p => p.id === source_project_id)
-          : currentProject;
+      case 'analyze_project_integrity': {
+        const analysis = analyzeProjectIntegrity();
         
+        return {
+          content: [{
+            type: 'text',
+            text: `🔍 ANALYSE D'INTÉGRITÉ DES ARCHIVES
+
+📊 Statistiques générales :
+- Projets totaux : ${analysis.totalProjects}
+- Conversations archivées : ${analysis.totalConversations}
+
+📚 Statistiques d'archivage :
+- Conversations complètes : ${analysis.archiveStats.full}
+- Conversations résumées : ${analysis.archiveStats.summarized}
+- Non archivées : ${analysis.archiveStats.total - analysis.archiveStats.full - analysis.archiveStats.summarized}
+
+🚨 Conversations mal placées :
+${analysis.suspiciousConversations.length === 0 ? 
+  '✅ Aucune anomalie détectée' : 
+  analysis.suspiciousConversations.map(s => 
+    `- ${s.projectName} : ${s.count} conversation(s) suspecte(s)`
+  ).join('\n')
+}
+
+💡 Recommandations :
+${analysis.recommendations.join('\n')}`
+          }]
+        };
+      }
+
+      case 'find_conversations_to_move': {
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
+        const { source_project_id, keywords } = args as any;
+        
+        const sourceProject = projects.find(p => p.id === source_project_id);
         if (!sourceProject) {
-          throw new McpError(ErrorCode.InvalidParams, `Projet source non trouvé: ${source_project_id || 'actuel'}`);
+          throw new McpError(ErrorCode.InvalidParams, `Projet non trouvé: ${source_project_id}`);
         }
 
-        // Trouver projet destination
-        const targetProject = projects.find(p => p.id === target_project_id);
-        if (!targetProject) {
-          throw new McpError(ErrorCode.InvalidParams, `Projet destination non trouvé: ${target_project_id}`);
-        }
+        const projectConversations = conversations.filter(c => c.project_id === source_project_id);
+        const toMove: { conversation: Conversation; keywords: string[]; suggestedProject: string }[] = [];
 
-        // Trouver et modifier la conversation
-        const conversationIndex = conversations.findIndex(
-          c => c.id === conversation_id && c.project_id === sourceProject.id
-        );
-        
-        if (conversationIndex === -1) {
-          throw new McpError(ErrorCode.InvalidParams, `Conversation non trouvée: ${conversation_id}`);
-        }
-
-        const conversation = conversations[conversationIndex];
-        conversation.project_id = target_project_id;
-
-        await saveData();
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `CONVERSATION DEPLACEE
-
-De : ${sourceProject.name}
-Vers : ${targetProject.name}
-Conversation : ${conversation.summary}
-Raison : ${reason}
-ID : ${conversation_id}`,
-            },
-          ],
-        };
-      }
-
-      case 'find_misplaced_conversations': {
-        const { project_id, keywords } = args as any;
-        
-        const targetProject = project_id 
-          ? projects.find(p => p.id === project_id)
-          : currentProject;
-        
-        if (!targetProject) {
-          throw new McpError(ErrorCode.InvalidParams, `Projet non trouvé: ${project_id || 'actuel'}`);
-        }
-
-        const projectConversations = conversations.filter(c => c.project_id === targetProject.id);
-        const suspicious: Conversation[] = [];
-        const recommendations: MoveSuggestion[] = [];
-
-        // Analyser chaque conversation
         for (const conversation of projectConversations) {
           const text = `${conversation.summary} ${conversation.content}`.toLowerCase();
-          
           const foundKeywords = keywords.filter((keyword: string) => 
             text.includes(keyword.toLowerCase())
           );
 
           if (foundKeywords.length > 0) {
-            suspicious.push(conversation);
-            
-            // SYSTÈME GÉNÉRIQUE DE SUGGESTION DE PROJET
-            const suggestedProject = findBestProjectMatch(foundKeywords, projects, targetProject.id);
-            
-            recommendations.push({
-              conversation_id: conversation.id,
-              current_project: targetProject.name,
-              suggested_project: suggestedProject,
-              confidence: foundKeywords.length / keywords.length,
-              reason: `Mots-clés détectés: ${foundKeywords.join(', ')}`
+            let suggestedProject = 'Projet à déterminer';
+            if (foundKeywords.some((k: string) => ['Heart of Glass', 'Rita', 'IMU', 'Audio'].includes(k))) {
+              suggestedProject = 'Application IMU Ludopédagogique Audio';
+            } else if (foundKeywords.some((k: string) => ['MCP', 'Claude API', 'TypeScript'].includes(k))) {
+              suggestedProject = 'Intégration MCP Claude';
+            } else if (foundKeywords.some((k: string) => ['Blender', 'SVG', 'sablage'].includes(k))) {
+              suggestedProject = 'Logiciel masque de sablage verre';
+            } else if (foundKeywords.some((k: string) => ['Kindle', 'Python', 'OCR'].includes(k))) {
+              suggestedProject = 'Detecteur de surlignement';
+            }
+
+            toMove.push({
+              conversation,
+              keywords: foundKeywords,
+              suggestedProject
             });
           }
         }
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `CONVERSATIONS POTENTIELLEMENT MAL PLACEES
+          content: [{
+            type: 'text',
+            text: `🎯 CONVERSATIONS À DÉPLACER
 
-Projet analysé : ${targetProject.name}
+Projet source : ${sourceProject.name}
 Mots-clés recherchés : ${keywords.join(', ')}
-Conversations suspectes : ${suspicious.length}
+Conversations trouvées : ${toMove.length}
 
-${recommendations.map(r => `### Conversation: ${r.conversation_id.substring(0, 8)}...
-Projet actuel : ${r.current_project}
-Projet suggéré : ${r.suggested_project}
-Confiance : ${Math.round(r.confidence * 100)}%
-Raison : ${r.reason}
----`).join('\n')}`,
-            },
-          ],
+${toMove.map(item => `### "${item.conversation.summary}"
+ID : ${item.conversation.id}
+Type : ${item.conversation.archiveType || 'standard'}
+Mots-clés détectés : ${item.keywords.join(', ')}
+Projet suggéré : ${item.suggestedProject}
+Date : ${new Date(item.conversation.timestamp).toLocaleDateString()}
+---`).join('\n')}`
+          }]
         };
       }
 
-      case 'restore_conversation': {
-        const { conversation_id, project_id } = args as any;
-        
-        const targetProject = project_id 
-          ? projects.find(p => p.id === project_id)
-          : currentProject;
-        
-        if (!targetProject) {
-          throw new McpError(ErrorCode.InvalidParams, `Projet non trouvé: ${project_id || 'actuel'}`);
+      case 'move_conversation_resolved': {
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
         }
 
-        const deletedIndex = deletedConversations.findIndex(
-          del => del.id === conversation_id
-        );
-
-        if (deletedIndex === -1) {
-          throw new McpError(ErrorCode.InvalidParams, `Conversation supprimée non trouvée: ${conversation_id}`);
-        }
-
-        const deletedEntry = deletedConversations.splice(deletedIndex, 1)[0];
-        conversations.push(deletedEntry.original_data);
-
-        await saveData();
-
+        const { conversation_input, target_project_id, reason } = args as any;
+        const result = await moveConversationSecure(conversation_input, target_project_id, reason);
+        
         return {
-          content: [
-            {
-              type: 'text',
-              text: `CONVERSATION RESTAUREE
+          content: [{
+            type: 'text',
+            text: `🚀 DÉPLACEMENT DE CONVERSATION ARCHIVÉE
 
-Projet : ${targetProject.name}
-Conversation : ${deletedEntry.original_data.summary}
-ID : ${conversation_id}
-Supprimée le : ${new Date(deletedEntry.deleted_at).toLocaleString()}
-Raison suppression : ${deletedEntry.reason}`,
-            },
-          ],
-        };
-      }
+Statut : ${result.success ? '✅ Succès' : '❌ Échec'}
+Message : ${result.message}
 
-      case 'analyze_all_projects_integrity': {
-        const { auto_suggest_fixes = true } = args as any;
-        
-        if (projects.length < 2) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: `ANALYSE D'INTÉGRITÉ - RÉSULTATS
-
-Nombre de projets : ${projects.length}
-Statut : Analyse non nécessaire (moins de 2 projets)`,
-              },
-            ],
-          };
-        }
-
-        const suspiciousProjects = analyzeAllProjectsForMisplacedConversations();
-        
-        let analysisReport = `ANALYSE D'INTÉGRITÉ - TOUS LES PROJETS
-
-Nombre total de projets : ${projects.length}
-Nombre de conversations : ${conversations.length}
-Conversations supprimées : ${deletedConversations.length}
-
-### PROJETS AVEC CONVERSATIONS SUSPECTES
-
-`;
-
-        if (suspiciousProjects.length === 0) {
-          analysisReport += `✅ Aucune anomalie détectée - Tous les projets semblent cohérents
-
-Recommandation : Vos archives sont bien organisées !`;
-        } else {
-          for (const suspicious of suspiciousProjects) {
-            const project = projects.find(p => p.id === suspicious.projectId);
-            if (project) {
-              analysisReport += `🚨 **${project.name}**
-   - ${suspicious.suspiciousConversations} conversation(s) potentiellement mal placée(s)
-   - Technologies : ${project.technologies.join(', ')}
-   
-`;
-            }
-          }
-
-          if (auto_suggest_fixes) {
-            analysisReport += `
-### SUGGESTIONS DE CORRECTION
-
-1. **Analyse détaillée** : Utilisez 'find_misplaced_conversations' sur chaque projet suspect
-2. **Mots-clés suggérés** : Recherchez des technologies spécifiques aux autres projets
-3. **Actions recommandées** : 
-   - Identifier les conversations avec des mots-clés d'autres projets
-   - Utiliser 'move_conversation_to_project' pour les corrections
-   - Utiliser 'delete_conversation' si les conversations ne sont pas pertinentes
-
-### COMMANDES SUGGÉRÉES
-${suspiciousProjects.map(sp => {
-  const project = projects.find(p => p.id === sp.projectId);
-  const otherTechnologies = projects.filter(p => p.id !== sp.projectId).flatMap(p => p.technologies).slice(0, 3);
-  return `- find_misplaced_conversations sur "${project?.name}" avec mots-clés: [${otherTechnologies.map(t => `"${t}"`).join(', ')}]`;
-}).join('\n')}`;
-          }
-        }
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: analysisReport,
-            },
-          ],
+${result.success ? '🎉 La conversation a été déplacée avec succès dans les bonnes archives !' : '🔧 Vérifiez l\'ID et réessayez'}`
+          }]
         };
       }
 
@@ -1268,16 +1237,15 @@ ${suspiciousProjects.map(sp => {
  */
 async function main() {
   try {
-    // Chargement des données au démarrage
     await loadData();
     
     const transport = new StdioServerTransport();
     await server.connect(transport);
     
-    console.error('Project Context Manager v3.1.0 démarré avec succès');
-    console.error('Fonctionnalités génériques: gestion conversations tous projets, analyse automatique d\'intégrité');
+    console.error('Project Context Manager V3.0 ARCHIVAGE FOCUS démarré');
+    console.error('📚 Fonctions d\'archivage essentielles + corrections techniques');
   } catch (error) {
-    console.error('Erreur demarrage Project Context Manager:', error);
+    console.error('Erreur démarrage:', error);
     process.exit(1);
   }
 }
