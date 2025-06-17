@@ -1,24 +1,33 @@
 #!/usr/bin/env node
 
 /**
- * MCP PROJECT CONTEXT MANAGER V3.0 - ARCHIVAGE FOCUS (ERREURS CORRIGÉES)
+ * MCP PROJECT CONTEXT MANAGER V3.2 - PRODUCTION READY
  * 
- * ✅ FONCTIONS D'ARCHIVAGE ESSENTIELLES CONSERVÉES :
- * - import_claude_conversation (CŒUR DE L'OUTIL)
+ * CORRECTION CRITIQUE: Suppression de tous les emojis pour compatibilité Claude Desktop
+ * et respect des bonnes pratiques de code de production
+ * 
+ * FONCTIONS D'ARCHIVAGE ESSENTIELLES CONSERVÉES :
+ * - import_claude_conversation (COEUR DE L'OUTIL)
  * - Documentation technique (add_documentation, record_technical_decision)
  * - Notes et règles d'architecture
  * - Système de phases et contexte projet
  * 
- * ✅ NOUVELLES CAPACITÉS D'ARCHIVAGE INTELLIGENT :
+ * NOUVELLES CAPACITÉS D'ARCHIVAGE INTELLIGENT :
  * - Résumé automatique des conversations (réduction 50%)
  * - Archivage structuré par phases
  * - Détection automatique du contenu pour classification
  * 
- * ✅ CORRECTIONS TECHNIQUES MAJEURES :
+ * CORRECTIONS TECHNIQUES MAJEURES :
  * - Système d'IDs robuste avec régénération
  * - Fonctions déplacement/suppression opérationnelles
  * - Résolution conversations mal placées
  * - CORRECTION TYPESCRIPT : Gestion des null, typage des paramètres
+ * - CORRECTION V3.2 : Suppression complète emojis pour compatibilité
+ * 
+ * NOUVELLES FONCTIONS DE SUPPRESSION V3.1 :
+ * - Suppression sécurisée de conversations
+ * - Détection et suppression automatique de doublons
+ * - Nettoyage intelligent des archives
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -117,7 +126,7 @@ let idMapping: ConversationMapping = {};
 const server = new Server(
   {
     name: 'project-context-manager',
-    version: '3.0.0',
+    version: '3.2.0',
   },
   {
     capabilities: {
@@ -210,7 +219,7 @@ function createConversationSummary(fullContent: string, targetReduction: number 
   
   // Première section (20% du résumé)
   const startLines = Math.floor(targetLines * 0.2);
-  summary.push('=== DÉBUT DE CONVERSATION ===');
+  summary.push('=== DEBUT DE CONVERSATION ===');
   summary.push(...lines.slice(0, startLines));
   
   // Section milieu (60% du résumé) - échantillonnage intelligent
@@ -229,7 +238,7 @@ function createConversationSummary(fullContent: string, targetReduction: number 
     line.length > 100 // Lignes substantielles
   ).slice(0, middleLines);
   
-  summary.push('\n=== SECTION PRINCIPALE (RÉSUMÉ) ===');
+  summary.push('\n=== SECTION PRINCIPALE (RESUME) ===');
   summary.push(...importantMiddle);
   
   // Dernière section (20% du résumé)
@@ -261,11 +270,147 @@ function detectConversationPhase(content: string): string {
 }
 
 /**
+ * NOUVELLES FONCTIONS DE SUPPRESSION V3.1
+ */
+function detectDuplicateConversations(): { duplicates: Conversation[]; groups: Conversation[][] } {
+  const duplicates: Conversation[] = [];
+  const groups: Conversation[][] = [];
+  const checkedIds = new Set<string>();
+  
+  for (let i = 0; i < conversations.length; i++) {
+    if (checkedIds.has(conversations[i].id)) continue;
+    
+    const current = conversations[i];
+    const potentialDuplicates: Conversation[] = [current];
+    
+    for (let j = i + 1; j < conversations.length; j++) {
+      const other = conversations[j];
+      
+      // Critères de détection de doublons
+      const titleSimilarity = current.summary.toLowerCase().includes('doublon') || 
+                             other.summary.toLowerCase().includes('doublon') ||
+                             current.summary === other.summary;
+      
+      const contentSimilarity = current.content.length > 100 && other.content.length > 100 &&
+                               Math.abs(current.content.length - other.content.length) < current.content.length * 0.1;
+      
+      const sameDayCreation = new Date(current.timestamp).toDateString() === 
+                             new Date(other.timestamp).toDateString();
+      
+      if ((titleSimilarity && sameDayCreation) || 
+          (contentSimilarity && titleSimilarity) ||
+          current.summary.toLowerCase().includes('doublon')) {
+        potentialDuplicates.push(other);
+        checkedIds.add(other.id);
+      }
+    }
+    
+    checkedIds.add(current.id);
+    
+    if (potentialDuplicates.length > 1) {
+      groups.push(potentialDuplicates);
+      duplicates.push(...potentialDuplicates.slice(1)); // Garder le premier, marquer les autres comme doublons
+    }
+  }
+  
+  return { duplicates, groups };
+}
+
+async function deleteConversationSecure(conversationInput: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const resolvedId = resolveConversationId(conversationInput);
+    if (!resolvedId) {
+      return { success: false, message: `Conversation non trouvée: ${conversationInput}` };
+    }
+    
+    const conversationIndex = conversations.findIndex(c => c.id === resolvedId);
+    if (conversationIndex === -1) {
+      return { success: false, message: `Conversation avec ID résolu non trouvée: ${resolvedId}` };
+    }
+    
+    const conversation = conversations[conversationIndex];
+    const project = projects.find(p => p.id === conversation.project_id);
+    
+    // Supprimer la conversation
+    conversations.splice(conversationIndex, 1);
+    
+    // Nettoyer le mapping ID si applicable
+    for (const [oldId, data] of Object.entries(idMapping)) {
+      if (data.newId === resolvedId) {
+        delete idMapping[oldId];
+        break;
+      }
+    }
+    
+    await saveData();
+    await saveIdMapping();
+    
+    console.log(`[DELETE] Conversation supprimée: "${conversation.summary}" du projet "${project?.name}"`);
+    
+    return { 
+      success: true, 
+      message: `Conversation "${conversation.summary}" supprimée du projet "${project?.name || 'Inconnu'}"` 
+    };
+    
+  } catch (error) {
+    console.error("[ERROR] Erreur suppression:", error);
+    return { 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Erreur inconnue' 
+    };
+  }
+}
+
+async function cleanupDuplicates(): Promise<{ success: boolean; message: string; stats: any }> {
+  try {
+    const { duplicates, groups } = detectDuplicateConversations();
+    
+    if (duplicates.length === 0) {
+      return {
+        success: true,
+        message: "Aucun doublon détecté",
+        stats: { duplicatesFound: 0, duplicatesRemoved: 0, groupsFound: 0 }
+      };
+    }
+    
+    let removedCount = 0;
+    const removalLog: string[] = [];
+    
+    for (const duplicate of duplicates) {
+      const result = await deleteConversationSecure(duplicate.id);
+      if (result.success) {
+        removedCount++;
+        removalLog.push(`- ${duplicate.summary}`);
+      }
+    }
+    
+    return {
+      success: true,
+      message: `${removedCount} doublons supprimés sur ${duplicates.length} détectés`,
+      stats: {
+        duplicatesFound: duplicates.length,
+        duplicatesRemoved: removedCount,
+        groupsFound: groups.length,
+        removedConversations: removalLog
+      }
+    };
+    
+  } catch (error) {
+    console.error("[ERROR] Erreur nettoyage doublons:", error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Erreur inconnue',
+      stats: {}
+    };
+  }
+}
+
+/**
  * RÉGÉNÉRATION DES IDS
  */
 async function regenerateAllConversationIds(): Promise<{ success: boolean; message: string; stats: any }> {
   try {
-    console.log("🔄 Régénération automatique des IDs...");
+    console.log("[PROCESSING] Régénération automatique des IDs...");
     
     const newIdMapping: ConversationMapping = {};
     let totalRegenerated = 0;
@@ -307,7 +452,7 @@ async function regenerateAllConversationIds(): Promise<{ success: boolean; messa
     };
     
   } catch (error) {
-    console.error("❌ Erreur régénération:", error);
+    console.error("[ERROR] Erreur régénération:", error);
     return {
       success: false,
       message: error instanceof Error ? error.message : 'Erreur inconnue',
@@ -358,7 +503,7 @@ async function moveConversationSecure(
     await saveData();
     
     const oldProject = projects.find(p => p.id === oldProjectId);
-    console.log(`✅ Conversation déplacée: "${conversation.summary}" de "${oldProject?.name}" vers "${targetProject.name}"`);
+    console.log(`[SUCCESS] Conversation déplacée: "${conversation.summary}" de "${oldProject?.name}" vers "${targetProject.name}"`);
     
     return { 
       success: true, 
@@ -366,7 +511,7 @@ async function moveConversationSecure(
     };
     
   } catch (error) {
-    console.error("❌ Erreur déplacement:", error);
+    console.error("[ERROR] Erreur déplacement:", error);
     return { 
       success: false, 
       message: error instanceof Error ? error.message : 'Erreur inconnue' 
@@ -382,6 +527,7 @@ function analyzeProjectIntegrity(): {
   totalConversations: number;
   suspiciousConversations: { projectId: string; count: number; projectName: string }[];
   archiveStats: { total: number; summarized: number; full: number };
+  duplicateInfo: { duplicatesFound: number; groupsFound: number };
   recommendations: string[];
 } {
   const analysis = {
@@ -393,7 +539,15 @@ function analyzeProjectIntegrity(): {
       summarized: conversations.filter(c => c.archiveType === 'summary').length,
       full: conversations.filter(c => c.archiveType === 'full').length
     },
+    duplicateInfo: { duplicatesFound: 0, groupsFound: 0 },
     recommendations: [] as string[]
+  };
+  
+  // Analyser les doublons
+  const { duplicates, groups } = detectDuplicateConversations();
+  analysis.duplicateInfo = {
+    duplicatesFound: duplicates.length,
+    groupsFound: groups.length
   };
   
   // Mots-clés par projet pour détection
@@ -437,21 +591,28 @@ function analyzeProjectIntegrity(): {
   // Recommandations d'archivage
   if (analysis.suspiciousConversations.length > 0) {
     analysis.recommendations.push(
-      "🔧 Conversations mal classées détectées",
-      "💡 Utilisez 'find_conversations_to_move' pour les identifier",
-      "🚀 Utilisez 'move_conversation_resolved' pour les corriger"
+      "[DEBUG] Conversations mal classées détectées",
+      "[INFO] Utilisez 'find_conversations_to_move' pour les identifier",
+      "[MOVE] Utilisez 'move_conversation_resolved' pour les corriger"
+    );
+  }
+  
+  if (analysis.duplicateInfo.duplicatesFound > 0) {
+    analysis.recommendations.push(
+      `[DELETE] ${analysis.duplicateInfo.duplicatesFound} doublons détectés`,
+      "[CLEANUP] Utilisez 'cleanup_duplicates' pour les supprimer automatiquement"
     );
   }
   
   if (analysis.archiveStats.summarized < analysis.archiveStats.total * 0.3) {
     analysis.recommendations.push(
-      "📚 Peu de conversations résumées",
-      "💾 Utilisez 'archive_conversation_summary' pour optimiser l'espace"
+      "[ARCHIVE] Peu de conversations résumées",
+      "[SUMMARY] Utilisez 'archive_conversation_summary' pour optimiser l'espace"
     );
   }
   
   if (analysis.recommendations.length === 0) {
-    analysis.recommendations.push("✅ Archives bien organisées !");
+    analysis.recommendations.push("[SUCCESS] Archives parfaitement organisées !");
   }
   
   return analysis;
@@ -506,7 +667,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'import_claude_conversation',
-        description: '📚 FONCTION PRINCIPALE - Importer et archiver une conversation Claude',
+        description: '[ARCHIVE] FONCTION PRINCIPALE - Importer et archiver une conversation Claude',
         inputSchema: {
           type: 'object',
           properties: {
@@ -520,7 +681,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'archive_conversation_summary',
-        description: '📝 Créer un résumé archivé d\'une conversation (réduction ~50%)',
+        description: '[SUMMARY] Créer un résumé archivé d\'une conversation (réduction ~50%)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -598,20 +759,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       
-      // === NOUVEAUX OUTILS V3.0 POUR CORRECTION IDS ===
+      // === OUTILS V3.0 POUR CORRECTION IDS ===
       {
         name: 'regenerate_conversation_ids',
-        description: '🔄 Régénérer tous les IDs de conversations (corrige les IDs tronqués)',
+        description: '[PROCESSING] Régénérer tous les IDs de conversations (corrige les IDs tronqués)',
         inputSchema: { type: 'object', properties: {} }
       },
       {
         name: 'analyze_project_integrity',
-        description: '🔍 Analyser l\'intégrité des archives et détecter les conversations mal placées',
+        description: '[ANALYZE] Analyser l\'intégrité des archives et détecter les conversations mal placées + doublons',
         inputSchema: { type: 'object', properties: {} }
       },
       {
         name: 'find_conversations_to_move',
-        description: '🎯 Identifier les conversations spécifiques à déplacer',
+        description: '[TARGET] Identifier les conversations spécifiques à déplacer',
         inputSchema: {
           type: 'object',
           properties: {
@@ -623,7 +784,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'move_conversation_resolved',
-        description: '🚀 Déplacer une conversation (résolution automatique d\'ID)',
+        description: '[MOVE] Déplacer une conversation (résolution automatique d\'ID)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -633,6 +794,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ['conversation_input', 'target_project_id', 'reason']
         }
+      },
+      
+      // === NOUVEAUX OUTILS V3.1 SUPPRESSION ===
+      {
+        name: 'delete_conversation',
+        description: '[DELETE] Supprimer définitivement une conversation (résolution automatique d\'ID)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            conversation_input: { type: 'string', description: 'ID de conversation (ancien ou nouveau) ou titre partiel' }
+          },
+          required: ['conversation_input']
+        }
+      },
+      {
+        name: 'detect_duplicates',
+        description: '[ANALYZE] Détecter les conversations en doublon sans les supprimer',
+        inputSchema: { type: 'object', properties: {} }
+      },
+      {
+        name: 'cleanup_duplicates',
+        description: '[CLEANUP] Supprimer automatiquement tous les doublons détectés',
+        inputSchema: { type: 'object', properties: {} }
       }
     ]
   };
@@ -693,7 +877,7 @@ ${JSON.stringify({
         return {
           content: [{
             type: 'text',
-            text: `PROJET CRÉÉ POUR ARCHIVAGE
+            text: `PROJET CREE POUR ARCHIVAGE
 
 Détails du projet :
 - ID : ${newProject.id}
@@ -702,7 +886,7 @@ Détails du projet :
 - Technologies : ${newProject.technologies.join(', ')}
 - Phase : ${newProject.phase}
 
-🎯 Prêt pour l'archivage de conversations Claude !`
+[TARGET] Prêt pour l'archivage de conversations Claude !`
           }]
         };
       }
@@ -725,14 +909,14 @@ Détails du projet :
         return {
           content: [{
             type: 'text',
-            text: `PROJET ACTIVÉ POUR ARCHIVAGE
+            text: `PROJET ACTIVE POUR ARCHIVAGE
 
 Projet actuel : ${project.name}
 - Phase : ${project.phase}
 - Technologies : ${project.technologies.join(', ')}
 - Créé : ${new Date(project.created).toLocaleDateString()}
 
-📚 Prêt pour import de conversations Claude`
+[ARCHIVE] Prêt pour import de conversations Claude`
           }]
         };
       }
@@ -823,7 +1007,7 @@ ${projectDocs.map(d => `- ${d.title} (${d.technology})`).join('\n') || 'Aucune d
         return {
           content: [{
             type: 'text',
-            text: `📚 CONVERSATION CLAUDE ARCHIVÉE
+            text: `[ARCHIVE] CONVERSATION CLAUDE ARCHIVEE
 
 Projet : ${currentProject!.name}
 Phase : ${detectedPhase}
@@ -832,7 +1016,7 @@ Type d'archivage : ${archive_type}
 ${archive_type === 'summary' ? `Réduction : ${reductionPercentage}% (${originalLength} → ${finalContent.length} caractères)` : `Taille : ${finalContent.length} caractères`}
 ID : ${conversation.id}
 
-✅ Conversation archivée avec succès !`
+[SUCCESS] Conversation archivée avec succès !`
           }]
         };
       }
@@ -864,7 +1048,7 @@ ID : ${conversation.id}
         return {
           content: [{
             type: 'text',
-            text: `📝 CONVERSATION RÉSUMÉE POUR ARCHIVAGE
+            text: `[SUMMARY] CONVERSATION RESUMEE POUR ARCHIVAGE
 
 Conversation : ${conversation.summary}
 Réduction : ${reductionPercentage}%
@@ -872,7 +1056,7 @@ Taille originale : ${originalLength} caractères
 Taille résumée : ${summarizedContent.length} caractères
 Ratio appliqué : ${Math.round(reduction_ratio * 100)}%
 
-✅ Archivage optimisé avec succès !`
+[SUCCESS] Archivage optimisé avec succès !`
           }]
         };
       }
@@ -943,7 +1127,7 @@ ID : ${r.id}
         return {
           content: [{
             type: 'text',
-            text: `📖 DOCUMENTATION AJOUTÉE
+            text: `[DOCS] DOCUMENTATION AJOUTEE
 
 Projet : ${currentProject!.name}
 Technologie : ${technology}
@@ -980,7 +1164,7 @@ ID : ${doc.id}`
         return {
           content: [{
             type: 'text',
-            text: `⚡ DÉCISION TECHNIQUE ENREGISTRÉE
+            text: `[DECISION] DECISION TECHNIQUE ENREGISTREE
 
 Projet : ${currentProject!.name}
 Décision : ${decision}
@@ -1002,7 +1186,7 @@ ID : ${techDecision.id}`
         return {
           content: [{
             type: 'text',
-            text: `🏗️ RÈGLES D'ARCHITECTURE - ${currentProject!.name}
+            text: `[ARCHITECTURE] REGLES D'ARCHITECTURE - ${currentProject!.name}
 
 ### Technologies utilisées
 ${currentProject!.technologies.map(t => `- ${t}`).join('\n')}
@@ -1039,7 +1223,7 @@ ${projectDocs.filter(d => d.relevance === 'high').map(d => `- ${d.title} (${d.te
         return {
           content: [{
             type: 'text',
-            text: `📅 PHASE MISE À JOUR
+            text: `[PHASE] PHASE MISE A JOUR
 
 Projet : ${currentProject!.name}
 Ancienne phase : ${oldPhase}
@@ -1070,7 +1254,7 @@ Timestamp : ${new Date().toISOString()}`
         return {
           content: [{
             type: 'text',
-            text: `📝 NOTE CRÉÉE
+            text: `[NOTE] NOTE CREEE
 
 Titre : ${title}
 Projet : ${currentProject?.name || 'Général'}
@@ -1079,24 +1263,24 @@ ID : ${note.id}`
         };
       }
 
-      // === NOUVEAUX OUTILS V3.0 ===
+      // === OUTILS V3.0 ===
       case 'regenerate_conversation_ids': {
         const result = await regenerateAllConversationIds();
         
         return {
           content: [{
             type: 'text',
-            text: `🔄 RÉGÉNÉRATION DES IDS - RÉSULTATS
+            text: `[PROCESSING] REGENERATION DES IDS - RESULTATS
 
-Statut : ${result.success ? '✅ Succès' : '❌ Échec'}
+Statut : ${result.success ? '[SUCCESS] Succès' : '[ERROR] Échec'}
 Message : ${result.message}
 
-${result.success ? `📊 Statistiques :
+${result.success ? `[STATS] Statistiques :
 - Conversations mises à jour : ${result.stats.totalRegenerated}
 - Projets affectés : ${result.stats.projectsAffected}
 - Entrées mapping : ${result.stats.mappingEntries}
 
-🎯 Actions suivantes recommandées :
+[TARGET] Actions suivantes recommandées :
 1. Tester avec 'analyze_project_integrity'
 2. Utiliser 'move_conversation_resolved' pour nettoyer` : ''}`
           }]
@@ -1109,26 +1293,30 @@ ${result.success ? `📊 Statistiques :
         return {
           content: [{
             type: 'text',
-            text: `🔍 ANALYSE D'INTÉGRITÉ DES ARCHIVES
+            text: `[ANALYZE] ANALYSE D'INTEGRITE DES ARCHIVES
 
-📊 Statistiques générales :
+[STATS] Statistiques générales :
 - Projets totaux : ${analysis.totalProjects}
 - Conversations archivées : ${analysis.totalConversations}
 
-📚 Statistiques d'archivage :
+[ARCHIVE] Statistiques d'archivage :
 - Conversations complètes : ${analysis.archiveStats.full}
 - Conversations résumées : ${analysis.archiveStats.summarized}
 - Non archivées : ${analysis.archiveStats.total - analysis.archiveStats.full - analysis.archiveStats.summarized}
 
-🚨 Conversations mal placées :
+[DELETE] Analyse des doublons :
+- Doublons détectés : ${analysis.duplicateInfo.duplicatesFound}
+- Groupes de doublons : ${analysis.duplicateInfo.groupsFound}
+
+[WARNING] Conversations mal placées :
 ${analysis.suspiciousConversations.length === 0 ? 
-  '✅ Aucune anomalie détectée' : 
+  '[SUCCESS] Aucune anomalie détectée' : 
   analysis.suspiciousConversations.map(s => 
     `- ${s.projectName} : ${s.count} conversation(s) suspecte(s)`
   ).join('\n')
 }
 
-💡 Recommandations :
+[INFO] Recommandations :
 ${analysis.recommendations.join('\n')}`
           }]
         };
@@ -1178,7 +1366,7 @@ ${analysis.recommendations.join('\n')}`
         return {
           content: [{
             type: 'text',
-            text: `🎯 CONVERSATIONS À DÉPLACER
+            text: `[TARGET] CONVERSATIONS A DEPLACER
 
 Projet source : ${sourceProject.name}
 Mots-clés recherchés : ${keywords.join(', ')}
@@ -1206,12 +1394,84 @@ Date : ${new Date(item.conversation.timestamp).toLocaleDateString()}
         return {
           content: [{
             type: 'text',
-            text: `🚀 DÉPLACEMENT DE CONVERSATION ARCHIVÉE
+            text: `[MOVE] DEPLACEMENT DE CONVERSATION ARCHIVEE
 
-Statut : ${result.success ? '✅ Succès' : '❌ Échec'}
+Statut : ${result.success ? '[SUCCESS] Succès' : '[ERROR] Échec'}
 Message : ${result.message}
 
-${result.success ? '🎉 La conversation a été déplacée avec succès dans les bonnes archives !' : '🔧 Vérifiez l\'ID et réessayez'}`
+${result.success ? '[COMPLETE] La conversation a été déplacée avec succès dans les bonnes archives !' : '[DEBUG] Vérifiez l\'ID et réessayez'}`
+          }]
+        };
+      }
+
+      // === NOUVEAUX OUTILS V3.1 SUPPRESSION ===
+      case 'delete_conversation': {
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
+        const { conversation_input } = args as any;
+        const result = await deleteConversationSecure(conversation_input);
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `[DELETE] SUPPRESSION DE CONVERSATION
+
+Statut : ${result.success ? '[SUCCESS] Succès' : '[ERROR] Échec'}
+Message : ${result.message}
+
+${result.success ? '[COMPLETE] La conversation a été supprimée définitivement !' : '[DEBUG] Vérifiez l\'ID et réessayez'}`
+          }]
+        };
+      }
+
+      case 'detect_duplicates': {
+        const { duplicates, groups } = detectDuplicateConversations();
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `[ANALYZE] DETECTION DES DOUBLONS
+
+[STATS] Résultats de l'analyse :
+- Doublons détectés : ${duplicates.length}
+- Groupes de doublons : ${groups.length}
+
+${groups.length === 0 ? '[SUCCESS] Aucun doublon détecté !' : 
+`[DELETE] Groupes de doublons trouvés :
+
+${groups.map((group, index) => `### Groupe ${index + 1} (${group.length} conversations)
+${group.map(conv => `- "${conv.summary}" (ID: ${conv.id})
+  Date: ${new Date(conv.timestamp).toLocaleDateString()}
+  Projet: ${projects.find(p => p.id === conv.project_id)?.name || 'Inconnu'}`).join('\n')}
+---`).join('\n')}
+
+[INFO] Utilisez 'cleanup_duplicates' pour supprimer automatiquement les doublons.`}`
+          }]
+        };
+      }
+
+      case 'cleanup_duplicates': {
+        const result = await cleanupDuplicates();
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `[CLEANUP] NETTOYAGE AUTOMATIQUE DES DOUBLONS
+
+Statut : ${result.success ? '[SUCCESS] Succès' : '[ERROR] Échec'}
+Message : ${result.message}
+
+${result.success && result.stats.duplicatesRemoved > 0 ? `[STATS] Statistiques :
+- Doublons trouvés : ${result.stats.duplicatesFound}
+- Doublons supprimés : ${result.stats.duplicatesRemoved}
+- Groupes traités : ${result.stats.groupsFound}
+
+[DELETE] Conversations supprimées :
+${result.stats.removedConversations?.join('\n') || 'Aucune'}
+
+[COMPLETE] Nettoyage terminé avec succès !` : result.success ? '[SUCCESS] Aucun doublon à nettoyer' : '[ERROR] Erreur pendant le nettoyage'}`
           }]
         };
       }
@@ -1242,8 +1502,8 @@ async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     
-    console.error('Project Context Manager V3.0 ARCHIVAGE FOCUS démarré');
-    console.error('📚 Fonctions d\'archivage essentielles + corrections techniques');
+    console.error('Project Context Manager V3.2 PRODUCTION READY démarré');
+    console.error('[ARCHIVE] Fonctions d\'archivage + corrections techniques + suppression');
   } catch (error) {
     console.error('Erreur démarrage:', error);
     process.exit(1);
