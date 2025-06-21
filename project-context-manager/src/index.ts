@@ -1,15 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * MCP PROJECT CONTEXT MANAGER V3.2 - PRODUCTION READY - FIXED
+ * MCP PROJECT CONTEXT MANAGER V3.2.2 - JSON FINAL FIX
  * 
- * CORRECTION CRITIQUE: Suppression de tous les emojis pour compatibilité Claude Desktop
- * et respect des bonnes pratiques de code de production
- * 
- * CORRECTIONS V3.2.1 - BUG FIXES:
- * - Correction erreur "Cannot read properties of undefined (reading 'toLowerCase')"
- * - Validation de toutes les propriétés avant appel toLowerCase()
- * - Gestion sécurisée des valeurs null/undefined
+ * CORRECTION CRITIQUE V3.2.2: 
+ * - Échappement sécurisé de toutes les chaînes de caractères
+ * - Suppression des guillemets problématiques dans les messages
+ * - Normalisation des caractères spéciaux pour compatibilité JSON
+ * - Simplification des template literals problématiques
  * 
  * FONCTIONS D'ARCHIVAGE ESSENTIELLES CONSERVÉES :
  * - import_claude_conversation (COEUR DE L'OUTIL)
@@ -21,19 +19,6 @@
  * - Résumé automatique des conversations (réduction 50%)
  * - Archivage structuré par phases
  * - Détection automatique du contenu pour classification
- * 
- * CORRECTIONS TECHNIQUES MAJEURES :
- * - Système d'IDs robuste avec régénération
- * - Fonctions déplacement/suppression opérationnelles
- * - Résolution conversations mal placées
- * - CORRECTION TYPESCRIPT : Gestion des null, typage des paramètres
- * - CORRECTION V3.2 : Suppression complète emojis pour compatibilité
- * - CORRECTION V3.2.1 : Validation toLowerCase() sécurisée
- * 
- * NOUVELLES FONCTIONS DE SUPPRESSION V3.1 :
- * - Suppression sécurisée de conversations
- * - Détection et suppression automatique de doublons
- * - Nettoyage intelligent des archives
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -57,13 +42,36 @@ function generateId(): string {
   return `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
+// NOUVELLES FONCTIONS D'ÉCHAPPEMENT JSON SÉCURISÉ
+function sanitizeForJson(text: string): string {
+  if (!text || typeof text !== 'string') return '';
+  
+  return text
+    .replace(/"/g, "'")  // Remplacer guillemets doubles par simples
+    .replace(/[\r\n\t]/g, ' ')  // Remplacer retours chariot par espaces
+    .replace(/\\/g, '/')  // Remplacer backslash par slash
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')  // Supprimer caractères de contrôle
+    .trim();
+}
+
+function createSafeMessage(template: string, ...values: string[]): string {
+  const sanitizedValues = values.map(v => sanitizeForJson(String(v || '')));
+  let result = template;
+  
+  sanitizedValues.forEach((value, index) => {
+    result = result.replace(`{${index}}`, value);
+  });
+  
+  return sanitizeForJson(result);
+}
+
 // Utilitaire de validation sécurisée
 function safeToLowerCase(value: any): string {
   return (value && typeof value === 'string') ? value.toLowerCase() : '';
 }
 
 function safeString(value: any): string {
-  return (value && typeof value === 'string') ? value : '';
+  return (value && typeof value === 'string') ? sanitizeForJson(value) : '';
 }
 
 // Interfaces essentielles pour l'archivage
@@ -141,7 +149,7 @@ let idMapping: ConversationMapping = {};
 const server = new Server(
   {
     name: 'project-context-manager',
-    version: '3.2.1',
+    version: '3.2.2',
   },
   {
     capabilities: {
@@ -267,7 +275,7 @@ function createConversationSummary(fullContent: string, targetReduction: number 
 function detectConversationPhase(content: string): string {
   // CORRECTION: Validation sécurisée avant toLowerCase()
   if (!content || typeof content !== 'string') {
-    console.warn('[WARNING] detectConversationPhase: content invalide, retour au défaut');
+    console.warn('detectConversationPhase: content invalide, retour au défaut');
     return 'development';
   }
   
@@ -345,12 +353,12 @@ async function deleteConversationSecure(conversationInput: string): Promise<{ su
   try {
     const resolvedId = resolveConversationId(conversationInput);
     if (!resolvedId) {
-      return { success: false, message: `Conversation non trouvée: ${conversationInput}` };
+      return { success: false, message: createSafeMessage('Conversation non trouvee: {0}', conversationInput) };
     }
     
     const conversationIndex = conversations.findIndex(c => c.id === resolvedId);
     if (conversationIndex === -1) {
-      return { success: false, message: `Conversation avec ID résolu non trouvée: ${resolvedId}` };
+      return { success: false, message: createSafeMessage('Conversation avec ID resolu non trouvee: {0}', resolvedId) };
     }
     
     const conversation = conversations[conversationIndex];
@@ -370,18 +378,19 @@ async function deleteConversationSecure(conversationInput: string): Promise<{ su
     await saveData();
     await saveIdMapping();
     
-    console.log(`[DELETE] Conversation supprimée: "${conversation.summary}" du projet "${project?.name}"`);
+    console.log(`Conversation supprimée: "${conversation.summary}" du projet "${project?.name}"`);
     
     return { 
       success: true, 
-      message: `Conversation "${conversation.summary}" supprimée du projet "${project?.name || 'Inconnu'}"` 
+      message: createSafeMessage('Conversation supprimee du projet {0}', project?.name || 'Inconnu')
     };
     
   } catch (error) {
-    console.error("[ERROR] Erreur suppression:", error);
+    console.error("Erreur suppression:", error);
     return { 
       success: false, 
-      message: error instanceof Error ? error.message : 'Erreur inconnue' 
+      message: createSafeMessage('Erreur lors de la suppression: {0}', 
+        error instanceof Error ? error.message : 'Erreur inconnue')
     };
   }
 }
@@ -393,7 +402,7 @@ async function cleanupDuplicates(): Promise<{ success: boolean; message: string;
     if (duplicates.length === 0) {
       return {
         success: true,
-        message: "Aucun doublon détecté",
+        message: "Aucun doublon detecte",
         stats: { duplicatesFound: 0, duplicatesRemoved: 0, groupsFound: 0 }
       };
     }
@@ -405,13 +414,14 @@ async function cleanupDuplicates(): Promise<{ success: boolean; message: string;
       const result = await deleteConversationSecure(duplicate.id);
       if (result.success) {
         removedCount++;
-        removalLog.push(`- ${duplicate.summary}`);
+        removalLog.push(safeString(duplicate.summary));
       }
     }
     
     return {
       success: true,
-      message: `${removedCount} doublons supprimés sur ${duplicates.length} détectés`,
+      message: createSafeMessage('{0} doublons supprimes sur {1} detectes', 
+        removedCount.toString(), duplicates.length.toString()),
       stats: {
         duplicatesFound: duplicates.length,
         duplicatesRemoved: removedCount,
@@ -421,10 +431,11 @@ async function cleanupDuplicates(): Promise<{ success: boolean; message: string;
     };
     
   } catch (error) {
-    console.error("[ERROR] Erreur nettoyage doublons:", error);
+    console.error("Erreur nettoyage doublons:", error);
     return {
       success: false,
-      message: error instanceof Error ? error.message : 'Erreur inconnue',
+      message: createSafeMessage('Erreur nettoyage: {0}', 
+        error instanceof Error ? error.message : 'Erreur inconnue'),
       stats: {}
     };
   }
@@ -435,7 +446,7 @@ async function cleanupDuplicates(): Promise<{ success: boolean; message: string;
  */
 async function regenerateAllConversationIds(): Promise<{ success: boolean; message: string; stats: any }> {
   try {
-    console.log("[PROCESSING] Régénération automatique des IDs...");
+    console.log("Régénération automatique des IDs...");
     
     const newIdMapping: ConversationMapping = {};
     let totalRegenerated = 0;
@@ -448,7 +459,7 @@ async function regenerateAllConversationIds(): Promise<{ success: boolean; messa
       newIdMapping[oldId] = {
         newId,
         projectId: conversation.project_id,
-        title: conversation.summary || `Conversation ${i + 1}`,
+        title: safeString(conversation.summary) || `Conversation ${i + 1}`,
         date: conversation.timestamp || new Date().toISOString(),
         phase: conversation.phase || 'unknown'
       };
@@ -468,7 +479,7 @@ async function regenerateAllConversationIds(): Promise<{ success: boolean; messa
     
     return {
       success: true,
-      message: `${totalRegenerated} conversations avec IDs régénérés`,
+      message: createSafeMessage('{0} conversations avec IDs regeneres', totalRegenerated.toString()),
       stats: {
         totalRegenerated,
         projectsAffected: projects.length,
@@ -477,17 +488,18 @@ async function regenerateAllConversationIds(): Promise<{ success: boolean; messa
     };
     
   } catch (error) {
-    console.error("[ERROR] Erreur régénération:", error);
+    console.error("Erreur régénération:", error);
     return {
       success: false,
-      message: error instanceof Error ? error.message : 'Erreur inconnue',
+      message: createSafeMessage('Erreur regeneration: {0}', 
+        error instanceof Error ? error.message : 'Erreur inconnue'),
       stats: {}
     };
   }
 }
 
 /**
- * RÉSOLUTION D'IDS ET DÉPLACEMENT
+ * RÉSOLUTION D'IDS ET DÉPLACEMENT - VERSION SÉCURISÉE JSON
  */
 function resolveConversationId(inputId: string): string | null {
   for (const [oldId, data] of Object.entries(idMapping)) {
@@ -508,17 +520,26 @@ async function moveConversationSecure(
   try {
     const resolvedId = resolveConversationId(conversationInput);
     if (!resolvedId) {
-      return { success: false, message: `Conversation non trouvée: ${conversationInput}` };
+      return { 
+        success: false, 
+        message: createSafeMessage('Conversation non trouvee: {0}', conversationInput)
+      };
     }
     
     const conversationIndex = conversations.findIndex(c => c.id === resolvedId);
     if (conversationIndex === -1) {
-      return { success: false, message: `Conversation avec ID résolu non trouvée: ${resolvedId}` };
+      return { 
+        success: false, 
+        message: createSafeMessage('Conversation avec ID resolu non trouvee: {0}', resolvedId)
+      };
     }
     
     const targetProject = projects.find(p => p.id === targetProjectId);
     if (!targetProject) {
-      return { success: false, message: `Projet destination non trouvé: ${targetProjectId}` };
+      return { 
+        success: false, 
+        message: createSafeMessage('Projet destination non trouve: {0}', targetProjectId)
+      };
     }
     
     const conversation = conversations[conversationIndex];
@@ -528,18 +549,21 @@ async function moveConversationSecure(
     await saveData();
     
     const oldProject = projects.find(p => p.id === oldProjectId);
-    console.log(`[SUCCESS] Conversation déplacée: "${conversation.summary}" de "${oldProject?.name}" vers "${targetProject.name}"`);
+    console.log(`Conversation déplacée: "${conversation.summary}" de "${oldProject?.name}" vers "${targetProject.name}"`);
     
+    // MESSAGE SÉCURISÉ SANS GUILLEMETS PROBLÉMATIQUES
     return { 
       success: true, 
-      message: `Conversation déplacée vers "${targetProject.name}" - Raison: ${reason}` 
+      message: createSafeMessage('Conversation deplacee vers {0} - Raison: {1}', 
+        targetProject.name, reason)
     };
     
   } catch (error) {
-    console.error("[ERROR] Erreur déplacement:", error);
+    console.error("Erreur déplacement:", error);
     return { 
       success: false, 
-      message: error instanceof Error ? error.message : 'Erreur inconnue' 
+      message: createSafeMessage('Erreur deplacement: {0}', 
+        error instanceof Error ? error.message : 'Erreur inconnue')
     };
   }
 }
@@ -609,7 +633,7 @@ function analyzeProjectIntegrity(): {
       analysis.suspiciousConversations.push({
         projectId: project.id,
         count: suspiciousCount,
-        projectName: project.name
+        projectName: safeString(project.name)
       });
     }
   }
@@ -617,28 +641,28 @@ function analyzeProjectIntegrity(): {
   // Recommandations d'archivage
   if (analysis.suspiciousConversations.length > 0) {
     analysis.recommendations.push(
-      "[DEBUG] Conversations mal classées détectées",
-      "[INFO] Utilisez 'find_conversations_to_move' pour les identifier",
-      "[MOVE] Utilisez 'move_conversation_resolved' pour les corriger"
+      "Conversations mal classees detectees",
+      "Utilisez 'find_conversations_to_move' pour les identifier",
+      "Utilisez 'move_conversation_resolved' pour les corriger"
     );
   }
   
   if (analysis.duplicateInfo.duplicatesFound > 0) {
     analysis.recommendations.push(
-      `[DELETE] ${analysis.duplicateInfo.duplicatesFound} doublons détectés`,
-      "[CLEANUP] Utilisez 'cleanup_duplicates' pour les supprimer automatiquement"
+      `${analysis.duplicateInfo.duplicatesFound} doublons detectes`,
+      "Utilisez 'cleanup_duplicates' pour les supprimer automatiquement"
     );
   }
   
   if (analysis.archiveStats.summarized < analysis.archiveStats.total * 0.3) {
     analysis.recommendations.push(
-      "[ARCHIVE] Peu de conversations résumées",
-      "[SUMMARY] Utilisez 'archive_conversation_summary' pour optimiser l'espace"
+      "Peu de conversations resumees",
+      "Utilisez 'archive_conversation_summary' pour optimiser l'espace"
     );
   }
   
   if (analysis.recommendations.length === 0) {
-    analysis.recommendations.push("[SUCCESS] Archives parfaitement organisées !");
+    analysis.recommendations.push("Archives parfaitement organisees !");
   }
   
   return analysis;
@@ -693,7 +717,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'import_claude_conversation',
-        description: '[ARCHIVE] FONCTION PRINCIPALE - Importer et archiver une conversation Claude',
+        description: 'ARCHIVE - FONCTION PRINCIPALE - Importer et archiver une conversation Claude',
         inputSchema: {
           type: 'object',
           properties: {
@@ -707,7 +731,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'archive_conversation_summary',
-        description: '[SUMMARY] Créer un résumé archivé d\'une conversation (réduction ~50%)',
+        description: 'SUMMARY - Créer un résumé archivé d\'une conversation (réduction ~50%)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -788,17 +812,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       // === OUTILS V3.0 POUR CORRECTION IDS ===
       {
         name: 'regenerate_conversation_ids',
-        description: '[PROCESSING] Régénérer tous les IDs de conversations (corrige les IDs tronqués)',
+        description: 'PROCESSING - Régénérer tous les IDs de conversations (corrige les IDs tronqués)',
         inputSchema: { type: 'object', properties: {} }
       },
       {
         name: 'analyze_project_integrity',
-        description: '[ANALYZE] Analyser l\'intégrité des archives et détecter les conversations mal placées + doublons',
+        description: 'ANALYZE - Analyser l\'intégrité des archives et détecter les conversations mal placées + doublons',
         inputSchema: { type: 'object', properties: {} }
       },
       {
         name: 'find_conversations_to_move',
-        description: '[TARGET] Identifier les conversations spécifiques à déplacer',
+        description: 'TARGET - Identifier les conversations spécifiques à déplacer',
         inputSchema: {
           type: 'object',
           properties: {
@@ -810,7 +834,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'move_conversation_resolved',
-        description: '[MOVE] Déplacer une conversation (résolution automatique d\'ID)',
+        description: 'MOVE - Déplacer une conversation (résolution automatique d\'ID)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -825,7 +849,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       // === NOUVEAUX OUTILS V3.1 SUPPRESSION ===
       {
         name: 'delete_conversation',
-        description: '[DELETE] Supprimer définitivement une conversation (résolution automatique d\'ID)',
+        description: 'DELETE - Supprimer définitivement une conversation (résolution automatique d\'ID)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -836,12 +860,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'detect_duplicates',
-        description: '[ANALYZE] Détecter les conversations en doublon sans les supprimer',
+        description: 'ANALYZE - Détecter les conversations en doublon sans les supprimer',
         inputSchema: { type: 'object', properties: {} }
       },
       {
         name: 'cleanup_duplicates',
-        description: '[CLEANUP] Supprimer automatiquement tous les doublons détectés',
+        description: 'CLEANUP - Supprimer automatiquement tous les doublons détectés',
         inputSchema: { type: 'object', properties: {} }
       }
     ]
@@ -849,7 +873,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 /**
- * GESTIONNAIRE DES APPELS D'OUTILS
+ * GESTIONNAIRE DES APPELS D'OUTILS - VERSION JSON SÉCURISÉE
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
@@ -867,7 +891,7 @@ ${JSON.stringify({
   active_project: currentProject?.id || null,
   projects: projects.map(p => ({
     id: p.id,
-    name: p.name,
+    name: safeString(p.name),
     type: p.type,
     phase: p.phase,
     status: p.status,
@@ -887,8 +911,8 @@ ${JSON.stringify({
         
         const newProject: Project = {
           id: generateId(),
-          name,
-          description,
+          name: sanitizeForJson(name),
+          description: sanitizeForJson(description),
           type: project_type,
           technologies,
           created: new Date().toISOString(),
@@ -903,16 +927,21 @@ ${JSON.stringify({
         return {
           content: [{
             type: 'text',
-            text: `PROJET CREE POUR ARCHIVAGE
+            text: createSafeMessage(`PROJET CREE POUR ARCHIVAGE
 
 Détails du projet :
-- ID : ${newProject.id}
-- Nom : ${newProject.name}
-- Type : ${newProject.type}
-- Technologies : ${newProject.technologies.join(', ')}
-- Phase : ${newProject.phase}
+- ID : {0}
+- Nom : {1}
+- Type : {2}
+- Technologies : {3}
+- Phase : {4}
 
-[TARGET] Prêt pour l'archivage de conversations Claude !`
+Prêt pour l'archivage de conversations Claude !`, 
+              newProject.id, 
+              newProject.name, 
+              newProject.type, 
+              newProject.technologies.join(', '), 
+              newProject.phase)
           }]
         };
       }
@@ -935,14 +964,18 @@ Détails du projet :
         return {
           content: [{
             type: 'text',
-            text: `PROJET ACTIVE POUR ARCHIVAGE
+            text: createSafeMessage(`PROJET ACTIVE POUR ARCHIVAGE
 
-Projet actuel : ${project.name}
-- Phase : ${project.phase}
-- Technologies : ${project.technologies.join(', ')}
-- Créé : ${new Date(project.created).toLocaleDateString()}
+Projet actuel : {0}
+- Phase : {1}
+- Technologies : {2}
+- Créé : {3}
 
-[ARCHIVE] Prêt pour import de conversations Claude`
+Prêt pour import de conversations Claude`,
+              project.name,
+              project.phase,
+              project.technologies.join(', '),
+              new Date(project.created).toLocaleDateString())
           }]
         };
       }
@@ -964,27 +997,48 @@ Projet actuel : ${project.name}
         const projectDecisions = decisions.filter(d => d.project_id === project.id);
         const projectDocs = documentation.filter(d => d.project_id === project.id);
 
+        const conversationsList = projectConversations.length > 0 
+          ? projectConversations.map(c => {
+              const summary = safeString(c.summary).substring(0, 80);
+              const phase = c.phase || 'unknown';
+              const archiveType = c.archiveType ? ` [${c.archiveType}]` : '';
+              return `- ${summary} (${phase})${archiveType}`;
+            }).join('\n')
+          : 'Aucune conversation';
+
+        const notesList = projectNotes.length > 0
+          ? projectNotes.map(n => `- ${safeString(n.title)}`).join('\n')
+          : 'Aucune note';
+
+        const decisionsList = projectDecisions.length > 0
+          ? projectDecisions.map(d => `- ${safeString(d.decision)}`).join('\n')
+          : 'Aucune decision';
+
+        const docsList = projectDocs.length > 0
+          ? projectDocs.map(d => `- ${safeString(d.title)} (${safeString(d.technology)})`).join('\n')
+          : 'Aucune documentation';
+
         return {
           content: [{
             type: 'text',
             text: `CONTEXTE COMPLET DU PROJET
 
-## ${project.name}
-Description : ${project.description}
+## ${safeString(project.name)}
+Description : ${safeString(project.description)}
 Phase : ${project.phase}
 Technologies : ${project.technologies.join(', ')}
 
 ### Conversations (${projectConversations.length})
-${projectConversations.map(c => `- ${c.summary} (${c.phase})${c.archiveType ? ` [${c.archiveType}]` : ''}`).join('\n') || 'Aucune conversation'}
+${conversationsList}
 
 ### Notes (${projectNotes.length})
-${projectNotes.map(n => `- ${n.title}`).join('\n') || 'Aucune note'}
+${notesList}
 
-### Décisions techniques (${projectDecisions.length})
-${projectDecisions.map(d => `- ${d.decision}`).join('\n') || 'Aucune décision'}
+### Decisions techniques (${projectDecisions.length})
+${decisionsList}
 
 ### Documentation (${projectDocs.length})
-${projectDocs.map(d => `- ${d.title} (${d.technology})`).join('\n') || 'Aucune documentation'}`
+${docsList}`
           }]
         };
       }
@@ -1014,7 +1068,7 @@ ${projectDocs.map(d => `- ${d.title} (${d.technology})`).join('\n') || 'Aucune d
         const conversation: Conversation = {
           id: generateId(),
           project_id: currentProject!.id,
-          summary,
+          summary: sanitizeForJson(summary),
           phase: detectedPhase,
           content: finalContent,
           timestamp: new Date().toISOString(),
@@ -1033,16 +1087,24 @@ ${projectDocs.map(d => `- ${d.title} (${d.technology})`).join('\n') || 'Aucune d
         return {
           content: [{
             type: 'text',
-            text: `[ARCHIVE] CONVERSATION CLAUDE ARCHIVEE
+            text: createSafeMessage(`CONVERSATION CLAUDE ARCHIVEE
 
-Projet : ${currentProject!.name}
-Phase : ${detectedPhase}
-Résumé : ${summary}
-Type d'archivage : ${archive_type}
-${archive_type === 'summary' ? `Réduction : ${reductionPercentage}% (${originalLength} → ${finalContent.length} caractères)` : `Taille : ${finalContent.length} caractères`}
-ID : ${conversation.id}
+Projet : {0}
+Phase : {1}
+Resume : {2}
+Type d'archivage : {3}
+{4}
+ID : {5}
 
-[SUCCESS] Conversation archivée avec succès !`
+Conversation archivee avec succes !`,
+              currentProject!.name,
+              detectedPhase,
+              summary,
+              archive_type,
+              archive_type === 'summary' 
+                ? `Reduction : ${reductionPercentage}% (${originalLength} → ${finalContent.length} caracteres)`
+                : `Taille : ${finalContent.length} caracteres`,
+              conversation.id)
           }]
         };
       }
@@ -1074,15 +1136,20 @@ ID : ${conversation.id}
         return {
           content: [{
             type: 'text',
-            text: `[SUMMARY] CONVERSATION RESUMEE POUR ARCHIVAGE
+            text: createSafeMessage(`CONVERSATION RESUMEE POUR ARCHIVAGE
 
-Conversation : ${conversation.summary}
-Réduction : ${reductionPercentage}%
-Taille originale : ${originalLength} caractères
-Taille résumée : ${summarizedContent.length} caractères
-Ratio appliqué : ${Math.round(reduction_ratio * 100)}%
+Conversation : {0}
+Reduction : {1}%
+Taille originale : {2} caracteres
+Taille resumee : {3} caracteres
+Ratio applique : {4}%
 
-[SUCCESS] Archivage optimisé avec succès !`
+Archivage optimise avec succes !`,
+              safeString(conversation.summary),
+              reductionPercentage.toString(),
+              originalLength.toString(),
+              summarizedContent.length.toString(),
+              Math.round(reduction_ratio * 100).toString())
           }]
         };
       }
@@ -1106,24 +1173,32 @@ Ratio appliqué : ${Math.round(reduction_ratio * 100)}%
           safeToLowerCase(c.summary).includes(safeQuery)
         );
 
+        const resultsList = results.map(r => {
+          const project = projects.find(p => p.id === r.project_id);
+          const summary = safeString(r.summary).substring(0, 80);
+          const projectName = safeString(project?.name) || 'Inconnu';
+          const phase = r.phase || 'unknown';
+          const archiveType = r.archiveType || 'standard';
+          const dateText = new Date(r.timestamp).toLocaleDateString();
+          
+          return `### ${summary}
+Projet : ${projectName}
+Phase : ${phase}
+Type : ${archiveType}
+Date : ${dateText}
+ID : ${r.id}
+---`;
+        }).join('\n');
+
         return {
           content: [{
             type: 'text',
-            text: `RECHERCHE DANS LES ARCHIVES
+            text: createSafeMessage(`RECHERCHE DANS LES ARCHIVES
 
-Recherche : "${query}"
-Résultats trouvés : ${results.length}
+Recherche : {0}
+Resultats trouves : {1}
 
-${results.map(r => {
-  const project = projects.find(p => p.id === r.project_id);
-  return `### ${r.summary}
-Projet : ${project?.name || 'Inconnu'}
-Phase : ${r.phase}
-Type : ${r.archiveType || 'standard'}
-Date : ${new Date(r.timestamp).toLocaleDateString()}
-ID : ${r.id}
----`;
-}).join('\n')}`
+{2}`, query, results.length.toString(), resultsList)
           }]
         };
       }
@@ -1142,9 +1217,9 @@ ID : ${r.id}
         const doc: Documentation = {
           id: generateId(),
           project_id: currentProject!.id,
-          technology,
-          title,
-          content,
+          technology: sanitizeForJson(technology),
+          title: sanitizeForJson(title),
+          content: sanitizeForJson(content),
           relevance,
           timestamp: new Date().toISOString()
         };
@@ -1155,13 +1230,13 @@ ID : ${r.id}
         return {
           content: [{
             type: 'text',
-            text: `[DOCS] DOCUMENTATION AJOUTEE
+            text: createSafeMessage(`DOCUMENTATION AJOUTEE
 
-Projet : ${currentProject!.name}
-Technologie : ${technology}
-Titre : ${title}
-Pertinence : ${relevance}
-ID : ${doc.id}`
+Projet : {0}
+Technologie : {1}
+Titre : {2}
+Pertinence : {3}
+ID : {4}`, currentProject!.name, technology, title, relevance, doc.id)
           }]
         };
       }
@@ -1180,9 +1255,9 @@ ID : ${doc.id}`
         const techDecision: TechnicalDecision = {
           id: generateId(),
           project_id: currentProject!.id,
-          decision,
-          reasoning,
-          impact,
+          decision: sanitizeForJson(decision),
+          reasoning: sanitizeForJson(reasoning),
+          impact: sanitizeForJson(impact),
           timestamp: new Date().toISOString()
         };
 
@@ -1192,13 +1267,13 @@ ID : ${doc.id}`
         return {
           content: [{
             type: 'text',
-            text: `[DECISION] DECISION TECHNIQUE ENREGISTREE
+            text: createSafeMessage(`DECISION TECHNIQUE ENREGISTREE
 
-Projet : ${currentProject!.name}
-Décision : ${decision}
-Justification : ${reasoning}
-Impact : ${impact}
-ID : ${techDecision.id}`
+Projet : {0}
+Decision : {1}
+Justification : {2}
+Impact : {3}
+ID : {4}`, currentProject!.name, decision, reasoning, impact, techDecision.id)
           }]
         };
       }
@@ -1214,16 +1289,16 @@ ID : ${techDecision.id}`
         return {
           content: [{
             type: 'text',
-            text: `[ARCHITECTURE] REGLES D'ARCHITECTURE - ${currentProject!.name}
+            text: `REGLES D'ARCHITECTURE - ${safeString(currentProject!.name)}
 
-### Technologies utilisées
+### Technologies utilisees
 ${currentProject!.technologies.map(t => `- ${t}`).join('\n')}
 
-### Décisions techniques
-${projectDecisions.map(d => `- ${d.decision}\n  Justification: ${d.reasoning}`).join('\n\n') || 'Aucune décision enregistrée'}
+### Decisions techniques
+${projectDecisions.map(d => `- ${safeString(d.decision)}\n  Justification: ${safeString(d.reasoning)}`).join('\n\n') || 'Aucune decision enregistree'}
 
 ### Documentation pertinente
-${projectDocs.filter(d => d.relevance === 'high').map(d => `- ${d.title} (${d.technology})`).join('\n') || 'Aucune documentation'}`
+${projectDocs.filter(d => d.relevance === 'high').map(d => `- ${safeString(d.title)} (${safeString(d.technology)})`).join('\n') || 'Aucune documentation'}`
           }]
         };
       }
@@ -1251,12 +1326,12 @@ ${projectDocs.filter(d => d.relevance === 'high').map(d => `- ${d.title} (${d.te
         return {
           content: [{
             type: 'text',
-            text: `[PHASE] PHASE MISE A JOUR
+            text: createSafeMessage(`PHASE MISE A JOUR
 
-Projet : ${currentProject!.name}
-Ancienne phase : ${oldPhase}
-Nouvelle phase : ${phase}
-Timestamp : ${new Date().toISOString()}`
+Projet : {0}
+Ancienne phase : {1}
+Nouvelle phase : {2}
+Timestamp : {3}`, currentProject!.name, oldPhase, phase, new Date().toISOString())
           }]
         };
       }
@@ -1270,8 +1345,8 @@ Timestamp : ${new Date().toISOString()}`
         
         const note: Note = {
           id: generateId(),
-          title,
-          content,
+          title: sanitizeForJson(title),
+          content: sanitizeForJson(content),
           timestamp: new Date().toISOString(),
           project_id: currentProject?.id
         };
@@ -1282,11 +1357,11 @@ Timestamp : ${new Date().toISOString()}`
         return {
           content: [{
             type: 'text',
-            text: `[NOTE] NOTE CREEE
+            text: createSafeMessage(`NOTE CREEE
 
-Titre : ${title}
-Projet : ${currentProject?.name || 'Général'}
-ID : ${note.id}`
+Titre : {0}
+Projet : {1}
+ID : {2}`, title, currentProject?.name || 'General', note.id)
           }]
         };
       }
@@ -1298,17 +1373,17 @@ ID : ${note.id}`
         return {
           content: [{
             type: 'text',
-            text: `[PROCESSING] REGENERATION DES IDS - RESULTATS
+            text: `REGENERATION DES IDS - RESULTATS
 
-Statut : ${result.success ? '[SUCCESS] Succès' : '[ERROR] Échec'}
-Message : ${result.message}
+Statut : ${result.success ? 'Succes' : 'Echec'}
+Message : ${safeString(result.message)}
 
-${result.success ? `[STATS] Statistiques :
-- Conversations mises à jour : ${result.stats.totalRegenerated}
-- Projets affectés : ${result.stats.projectsAffected}
-- Entrées mapping : ${result.stats.mappingEntries}
+${result.success ? `Statistiques :
+- Conversations mises a jour : ${result.stats.totalRegenerated}
+- Projets affectes : ${result.stats.projectsAffected}
+- Entrees mapping : ${result.stats.mappingEntries}
 
-[TARGET] Actions suivantes recommandées :
+Actions suivantes recommandees :
 1. Tester avec 'analyze_project_integrity'
 2. Utiliser 'move_conversation_resolved' pour nettoyer` : ''}`
           }]
@@ -1321,30 +1396,30 @@ ${result.success ? `[STATS] Statistiques :
         return {
           content: [{
             type: 'text',
-            text: `[ANALYZE] ANALYSE D'INTEGRITE DES ARCHIVES
+            text: `ANALYSE D'INTEGRITE DES ARCHIVES
 
-[STATS] Statistiques générales :
+Statistiques generales :
 - Projets totaux : ${analysis.totalProjects}
-- Conversations archivées : ${analysis.totalConversations}
+- Conversations archivees : ${analysis.totalConversations}
 
-[ARCHIVE] Statistiques d'archivage :
-- Conversations complètes : ${analysis.archiveStats.full}
-- Conversations résumées : ${analysis.archiveStats.summarized}
-- Non archivées : ${analysis.archiveStats.total - analysis.archiveStats.full - analysis.archiveStats.summarized}
+Statistiques d'archivage :
+- Conversations completes : ${analysis.archiveStats.full}
+- Conversations resumees : ${analysis.archiveStats.summarized}
+- Non archivees : ${analysis.archiveStats.total - analysis.archiveStats.full - analysis.archiveStats.summarized}
 
-[DELETE] Analyse des doublons :
-- Doublons détectés : ${analysis.duplicateInfo.duplicatesFound}
+Analyse des doublons :
+- Doublons detectes : ${analysis.duplicateInfo.duplicatesFound}
 - Groupes de doublons : ${analysis.duplicateInfo.groupsFound}
 
-[WARNING] Conversations mal placées :
+Conversations mal placees :
 ${analysis.suspiciousConversations.length === 0 ? 
-  '[SUCCESS] Aucune anomalie détectée' : 
+  'Aucune anomalie detectee' : 
   analysis.suspiciousConversations.map(s => 
     `- ${s.projectName} : ${s.count} conversation(s) suspecte(s)`
   ).join('\n')
 }
 
-[INFO] Recommandations :
+Recommandations :
 ${analysis.recommendations.join('\n')}`
           }]
         };
@@ -1373,11 +1448,11 @@ ${analysis.recommendations.join('\n')}`
           );
 
           if (foundKeywords.length > 0) {
-            let suggestedProject = 'Projet à déterminer';
+            let suggestedProject = 'Projet a determiner';
             if (foundKeywords.some((k: string) => ['Heart of Glass', 'Rita', 'IMU', 'Audio'].includes(k))) {
-              suggestedProject = 'Application IMU Ludopédagogique Audio';
+              suggestedProject = 'Application IMU Ludopedagogique Audio';
             } else if (foundKeywords.some((k: string) => ['MCP', 'Claude API', 'TypeScript'].includes(k))) {
-              suggestedProject = 'Intégration MCP Claude';
+              suggestedProject = 'Integration MCP Claude';
             } else if (foundKeywords.some((k: string) => ['Blender', 'SVG', 'sablage'].includes(k))) {
               suggestedProject = 'Logiciel masque de sablage verre';
             } else if (foundKeywords.some((k: string) => ['Kindle', 'Python', 'OCR'].includes(k))) {
@@ -1392,22 +1467,31 @@ ${analysis.recommendations.join('\n')}`
           }
         }
 
+        const conversationsList = toMove.map(item => {
+          const summary = safeString(item.conversation.summary).substring(0, 100);
+          const archiveType = item.conversation.archiveType || 'standard';
+          const keywordsText = item.keywords.join(', ');
+          const dateText = new Date(item.conversation.timestamp).toLocaleDateString();
+          
+          return `### ${summary}
+ID : ${item.conversation.id}
+Type : ${archiveType}
+Mots-cles detectes : ${keywordsText}
+Projet suggere : ${item.suggestedProject}
+Date : ${dateText}
+---`;
+        }).join('\n');
+
         return {
           content: [{
             type: 'text',
-            text: `[TARGET] CONVERSATIONS A DEPLACER
+            text: `CONVERSATIONS A DEPLACER
 
-Projet source : ${sourceProject.name}
-Mots-clés recherchés : ${keywords.join(', ')}
-Conversations trouvées : ${toMove.length}
+Projet source : ${safeString(sourceProject.name)}
+Mots-cles recherches : ${keywords.join(', ')}
+Conversations trouvees : ${toMove.length}
 
-${toMove.map(item => `### "${item.conversation.summary}"
-ID : ${item.conversation.id}
-Type : ${item.conversation.archiveType || 'standard'}
-Mots-clés détectés : ${item.keywords.join(', ')}
-Projet suggéré : ${item.suggestedProject}
-Date : ${new Date(item.conversation.timestamp).toLocaleDateString()}
----`).join('\n')}`
+${conversationsList}`
           }]
         };
       }
@@ -1423,12 +1507,12 @@ Date : ${new Date(item.conversation.timestamp).toLocaleDateString()}
         return {
           content: [{
             type: 'text',
-            text: `[MOVE] DEPLACEMENT DE CONVERSATION ARCHIVEE
+            text: `DEPLACEMENT DE CONVERSATION ARCHIVEE
 
-Statut : ${result.success ? '[SUCCESS] Succès' : '[ERROR] Échec'}
-Message : ${result.message}
+Statut : ${result.success ? 'Succes' : 'Echec'}
+Message : ${safeString(result.message)}
 
-${result.success ? '[COMPLETE] La conversation a été déplacée avec succès dans les bonnes archives !' : '[DEBUG] Vérifiez l\'ID et réessayez'}`
+${result.success ? 'La conversation a ete deplacee avec succes dans les bonnes archives !' : 'Verifiez l\'ID et reessayez'}`
           }]
         };
       }
@@ -1445,12 +1529,12 @@ ${result.success ? '[COMPLETE] La conversation a été déplacée avec succès d
         return {
           content: [{
             type: 'text',
-            text: `[DELETE] SUPPRESSION DE CONVERSATION
+            text: `SUPPRESSION DE CONVERSATION
 
-Statut : ${result.success ? '[SUCCESS] Succès' : '[ERROR] Échec'}
-Message : ${result.message}
+Statut : ${result.success ? 'Succes' : 'Echec'}
+Message : ${safeString(result.message)}
 
-${result.success ? '[COMPLETE] La conversation a été supprimée définitivement !' : '[DEBUG] Vérifiez l\'ID et réessayez'}`
+${result.success ? 'La conversation a ete supprimee definitivement !' : 'Verifiez l\'ID et reessayez'}`
           }]
         };
       }
@@ -1461,22 +1545,22 @@ ${result.success ? '[COMPLETE] La conversation a été supprimée définitivemen
         return {
           content: [{
             type: 'text',
-            text: `[ANALYZE] DETECTION DES DOUBLONS
+            text: `DETECTION DES DOUBLONS
 
-[STATS] Résultats de l'analyse :
-- Doublons détectés : ${duplicates.length}
+Resultats de l'analyse :
+- Doublons detectes : ${duplicates.length}
 - Groupes de doublons : ${groups.length}
 
-${groups.length === 0 ? '[SUCCESS] Aucun doublon détecté !' : 
-`[DELETE] Groupes de doublons trouvés :
+${groups.length === 0 ? 'Aucun doublon detecte !' : 
+`Groupes de doublons trouves :
 
 ${groups.map((group, index) => `### Groupe ${index + 1} (${group.length} conversations)
-${group.map(conv => `- "${conv.summary}" (ID: ${conv.id})
+${group.map(conv => `- ${safeString(conv.summary)} (ID: ${conv.id})
   Date: ${new Date(conv.timestamp).toLocaleDateString()}
-  Projet: ${projects.find(p => p.id === conv.project_id)?.name || 'Inconnu'}`).join('\n')}
+  Projet: ${safeString(projects.find(p => p.id === conv.project_id)?.name) || 'Inconnu'}`).join('\n')}
 ---`).join('\n')}
 
-[INFO] Utilisez 'cleanup_duplicates' pour supprimer automatiquement les doublons.`}`
+Utilisez 'cleanup_duplicates' pour supprimer automatiquement les doublons.`}`
           }]
         };
       }
@@ -1487,20 +1571,20 @@ ${group.map(conv => `- "${conv.summary}" (ID: ${conv.id})
         return {
           content: [{
             type: 'text',
-            text: `[CLEANUP] NETTOYAGE AUTOMATIQUE DES DOUBLONS
+            text: `NETTOYAGE AUTOMATIQUE DES DOUBLONS
 
-Statut : ${result.success ? '[SUCCESS] Succès' : '[ERROR] Échec'}
-Message : ${result.message}
+Statut : ${result.success ? 'Succes' : 'Echec'}
+Message : ${safeString(result.message)}
 
-${result.success && result.stats.duplicatesRemoved > 0 ? `[STATS] Statistiques :
-- Doublons trouvés : ${result.stats.duplicatesFound}
-- Doublons supprimés : ${result.stats.duplicatesRemoved}
-- Groupes traités : ${result.stats.groupsFound}
+${result.success && result.stats.duplicatesRemoved > 0 ? `Statistiques :
+- Doublons trouves : ${result.stats.duplicatesFound}
+- Doublons supprimes : ${result.stats.duplicatesRemoved}
+- Groupes traites : ${result.stats.groupsFound}
 
-[DELETE] Conversations supprimées :
+Conversations supprimees :
 ${result.stats.removedConversations?.join('\n') || 'Aucune'}
 
-[COMPLETE] Nettoyage terminé avec succès !` : result.success ? '[SUCCESS] Aucun doublon à nettoyer' : '[ERROR] Erreur pendant le nettoyage'}`
+Nettoyage termine avec succes !` : result.success ? 'Aucun doublon a nettoyer' : 'Erreur pendant le nettoyage'}`
           }]
         };
       }
@@ -1531,8 +1615,8 @@ async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     
-    console.error('Project Context Manager V3.2.1 FIXED démarré');
-    console.error('[ARCHIVE] Fonctions d\'archivage + corrections techniques + suppression + bug fixes');
+    console.error('Project Context Manager V3.2.2 JSON FINAL FIX démarré');
+    console.error('Fonctions d\'archivage + corrections techniques + suppression + échappement JSON sécurisé');
   } catch (error) {
     console.error('Erreur démarrage:', error);
     process.exit(1);
