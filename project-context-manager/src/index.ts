@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * MCP PROJECT CONTEXT MANAGER V3.2 - PRODUCTION READY
+ * MCP PROJECT CONTEXT MANAGER V3.2 - PRODUCTION READY - FIXED
  * 
  * CORRECTION CRITIQUE: Suppression de tous les emojis pour compatibilité Claude Desktop
  * et respect des bonnes pratiques de code de production
+ * 
+ * CORRECTIONS V3.2.1 - BUG FIXES:
+ * - Correction erreur "Cannot read properties of undefined (reading 'toLowerCase')"
+ * - Validation de toutes les propriétés avant appel toLowerCase()
+ * - Gestion sécurisée des valeurs null/undefined
  * 
  * FONCTIONS D'ARCHIVAGE ESSENTIELLES CONSERVÉES :
  * - import_claude_conversation (COEUR DE L'OUTIL)
@@ -23,6 +28,7 @@
  * - Résolution conversations mal placées
  * - CORRECTION TYPESCRIPT : Gestion des null, typage des paramètres
  * - CORRECTION V3.2 : Suppression complète emojis pour compatibilité
+ * - CORRECTION V3.2.1 : Validation toLowerCase() sécurisée
  * 
  * NOUVELLES FONCTIONS DE SUPPRESSION V3.1 :
  * - Suppression sécurisée de conversations
@@ -49,6 +55,15 @@ const ID_MAPPING_FILE = path.join(DATA_DIR, 'conversation_id_mapping.json');
 // Génération d'ID robuste
 function generateId(): string {
   return `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Utilitaire de validation sécurisée
+function safeToLowerCase(value: any): string {
+  return (value && typeof value === 'string') ? value.toLowerCase() : '';
+}
+
+function safeString(value: any): string {
+  return (value && typeof value === 'string') ? value : '';
 }
 
 // Interfaces essentielles pour l'archivage
@@ -126,7 +141,7 @@ let idMapping: ConversationMapping = {};
 const server = new Server(
   {
     name: 'project-context-manager',
-    version: '3.2.0',
+    version: '3.2.1',
   },
   {
     capabilities: {
@@ -250,6 +265,12 @@ function createConversationSummary(fullContent: string, targetReduction: number 
 }
 
 function detectConversationPhase(content: string): string {
+  // CORRECTION: Validation sécurisée avant toLowerCase()
+  if (!content || typeof content !== 'string') {
+    console.warn('[WARNING] detectConversationPhase: content invalide, retour au défaut');
+    return 'development';
+  }
+  
   const contentLower = content.toLowerCase();
   
   if (contentLower.includes('initial') || contentLower.includes('setup') || contentLower.includes('création')) {
@@ -286,12 +307,16 @@ function detectDuplicateConversations(): { duplicates: Conversation[]; groups: C
     for (let j = i + 1; j < conversations.length; j++) {
       const other = conversations[j];
       
-      // Critères de détection de doublons
-      const titleSimilarity = current.summary.toLowerCase().includes('doublon') || 
-                             other.summary.toLowerCase().includes('doublon') ||
-                             current.summary === other.summary;
+      // CORRECTION: Validation sécurisée avant toLowerCase()
+      const currentSummary = safeString(current.summary);
+      const otherSummary = safeString(other.summary);
       
-      const contentSimilarity = current.content.length > 100 && other.content.length > 100 &&
+      const titleSimilarity = safeToLowerCase(currentSummary).includes('doublon') || 
+                             safeToLowerCase(otherSummary).includes('doublon') ||
+                             currentSummary === otherSummary;
+      
+      const contentSimilarity = current.content && other.content &&
+                               current.content.length > 100 && other.content.length > 100 &&
                                Math.abs(current.content.length - other.content.length) < current.content.length * 0.1;
       
       const sameDayCreation = new Date(current.timestamp).toDateString() === 
@@ -299,7 +324,7 @@ function detectDuplicateConversations(): { duplicates: Conversation[]; groups: C
       
       if ((titleSimilarity && sameDayCreation) || 
           (contentSimilarity && titleSimilarity) ||
-          current.summary.toLowerCase().includes('doublon')) {
+          safeToLowerCase(currentSummary).includes('doublon')) {
         potentialDuplicates.push(other);
         checkedIds.add(other.id);
       }
@@ -568,10 +593,11 @@ function analyzeProjectIntegrity(): {
       .flatMap(([, keywords]) => keywords);
     
     for (const conversation of projectConversations) {
-      const text = `${conversation.summary} ${conversation.content}`.toLowerCase();
+      // CORRECTION: Validation sécurisée avant toLowerCase()
+      const text = `${safeString(conversation.summary)} ${safeString(conversation.content)}`.toLowerCase();
       
       const foundKeywords = otherProjectKeywords.filter(keyword => 
-        text.includes(keyword.toLowerCase())
+        text.includes(safeToLowerCase(keyword))
       );
       
       if (foundKeywords.length >= 2) {
@@ -1073,9 +1099,11 @@ Ratio appliqué : ${Math.round(reduction_ratio * 100)}%
           searchConversations = conversations.filter(c => c.project_id === project_id);
         }
 
+        // CORRECTION: Validation sécurisée avant toLowerCase()
+        const safeQuery = safeToLowerCase(query);
         const results = searchConversations.filter(c => 
-          c.content.toLowerCase().includes(query.toLowerCase()) ||
-          c.summary.toLowerCase().includes(query.toLowerCase())
+          safeToLowerCase(c.content).includes(safeQuery) ||
+          safeToLowerCase(c.summary).includes(safeQuery)
         );
 
         return {
@@ -1338,9 +1366,10 @@ ${analysis.recommendations.join('\n')}`
         const toMove: { conversation: Conversation; keywords: string[]; suggestedProject: string }[] = [];
 
         for (const conversation of projectConversations) {
-          const text = `${conversation.summary} ${conversation.content}`.toLowerCase();
+          // CORRECTION: Validation sécurisée avant toLowerCase()
+          const text = `${safeString(conversation.summary)} ${safeString(conversation.content)}`.toLowerCase();
           const foundKeywords = keywords.filter((keyword: string) => 
-            text.includes(keyword.toLowerCase())
+            text.includes(safeToLowerCase(keyword))
           );
 
           if (foundKeywords.length > 0) {
@@ -1502,8 +1531,8 @@ async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     
-    console.error('Project Context Manager V3.2 PRODUCTION READY démarré');
-    console.error('[ARCHIVE] Fonctions d\'archivage + corrections techniques + suppression');
+    console.error('Project Context Manager V3.2.1 FIXED démarré');
+    console.error('[ARCHIVE] Fonctions d\'archivage + corrections techniques + suppression + bug fixes');
   } catch (error) {
     console.error('Erreur démarrage:', error);
     process.exit(1);
