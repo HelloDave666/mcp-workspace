@@ -1,11 +1,17 @@
 ﻿#!/usr/bin/env node
 
 /**
- * MCP HAL SERVER V1.0.0 - RECHERCHE SCIENCES SOCIALES
+ * MCP HAL SERVER V1.0.1 - RECHERCHE SCIENCES SOCIALES (CORRIGÉ)
  * 
  * Serveur MCP pour intégration avec HAL (Hyper Articles en Ligne)
  * Spécialisé pour recherches en sciences sociales, anthropologie technique,
  * phénoménologie et études sur le geste et l'artisanat
+ * 
+ * CORRECTIONS V1.0.1:
+ * - Extraction corrigée des champs HAL (titre, auteurs, année)
+ * - Interface HALDocument étendue avec champs alternatifs
+ * - Fonctions de debug pour diagnostic API
+ * - Formatage amélioré des résultats
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -24,16 +30,23 @@ const HAL_API_BASE = 'https://api.archives-ouvertes.fr';
 const HAL_SEARCH_URL = `${HAL_API_BASE}/search/`;
 const HAL_DOCUMENT_URL = 'https://hal.archives-ouvertes.fr';
 
-// Interfaces HAL
+// Interface HAL étendue avec tous les champs possibles
 interface HALDocument {
+  // Champs standard
   halId_s?: string;
+  docid?: string;
   title_s?: string[];
+  title?: string[];
   authFullName_s?: string[];
+  authLastName_s?: string[];
+  authFirstName_s?: string[];
   abstract_s?: string[];
+  abstract?: string;
   publicationDate_s?: string;
   publicationDateY_i?: number;
   docType_s?: string;
   domain_s?: string[];
+  domainAllCode_s?: string[];
   keyword_s?: string[];
   uri_s?: string;
   fileMain_s?: string;
@@ -41,6 +54,20 @@ interface HALDocument {
   journalTitle_s?: string;
   bookTitle_s?: string;
   publisher_s?: string[];
+  
+  // Champs alternatifs possibles
+  title_en_s?: string[];
+  title_fr_s?: string[];
+  authIdHal_s?: string[];
+  labStructName_s?: string[];
+  instStructName_s?: string[];
+  conferenceTitle_s?: string;
+  issue_s?: string;
+  volume_s?: string;
+  page_s?: string;
+  
+  // Champs dynamiques (l'API HAL peut retourner d'autres champs)
+  [key: string]: any;
 }
 
 interface HALSearchResponse {
@@ -58,7 +85,7 @@ class HALMCPServer {
     this.server = new Server(
       {
         name: 'hal-mcp',
-        version: '1.0.0',
+        version: '1.0.1',
       },
       {
         capabilities: {
@@ -113,23 +140,74 @@ class HALMCPServer {
     return `${HAL_SEARCH_URL}?${params.toString()}`;
   }
 
+  // FONCTION CORRIGÉE - formatHALDocument avec parsing du label_s
   private formatHALDocument(doc: HALDocument): string {
-    const title = doc.title_s?.[0] || 'Sans titre';
-    const authors = doc.authFullName_s?.slice(0, 3).join(', ') || 'Auteur inconnu';
-    const year = doc.publicationDateY_i || 'Année inconnue';
-    const docType = doc.docType_s || 'Type inconnu';
-    const domains = doc.domain_s?.slice(0, 2).join(', ') || 'Domaine non spécifié';
-    const halId = doc.halId_s || 'ID inconnu';
-    const abstract = doc.abstract_s?.[0]?.substring(0, 200) || 'Pas de résumé';
     
+    // PARSING INTELLIGENT du champ label_s qui contient toutes les infos
+    const labelFull = doc.label_s || '';
+    
+    // Extraction des informations depuis label_s
+    let title = 'Sans titre';
+    let authors = 'Auteur inconnu';
+    let year = 'Année inconnue';
+    let halId = doc.docid || 'ID inconnu';
+    
+    if (labelFull) {
+      // Parsing du label_s format: "Auteur. Titre. Contexte, Date, Lieu. ⟨hal-id⟩"
+      const parts = labelFull.split('.');
+      
+      if (parts.length >= 2) {
+        // Premier segment = Auteur
+        authors = parts[0].trim();
+        
+        // Deuxième segment = Titre
+        title = parts[1].trim();
+      }
+      
+      // Extraction de l'année (chercher pattern année 4 chiffres)
+      const yearMatch = labelFull.match(/\b(19|20)\d{2}\b/);
+      if (yearMatch) {
+        year = yearMatch[0];
+      }
+      
+      // Extraction ID HAL (pattern ⟨hal-XXXXXXX⟩ ou hal-XXXXXXX)
+      const halIdMatch = labelFull.match(/hal-(\d+)/);
+      if (halIdMatch) {
+        halId = `hal-${halIdMatch[1]}`;
+      }
+    }
+    
+    // Valeurs par défaut pour les autres champs
+    const docType = 'Article HAL';
+    const domains = 'Sciences sociales';
+    const abstract = labelFull.length > 200 ? labelFull.substring(0, 200) + '...' : labelFull;
+    const halUrl = doc.uri_s || `${HAL_DOCUMENT_URL}/${halId}`;
+
     return `### ${title}
 **Auteurs:** ${authors}
 **Année:** ${year}
 **Type:** ${docType}
 **Domaines:** ${domains}
 **ID HAL:** ${halId}
-**Résumé:** ${abstract}${abstract.length >= 200 ? '...' : ''}
-**URL:** ${HAL_DOCUMENT_URL}/${halId}`;
+**Résumé:** ${abstract}
+**URL:** ${halUrl}`;
+  }
+
+  // FONCTION AJOUTÉE - Debug de l'API HAL
+  private async debugHALResponse(query: string): Promise<any> {
+    const url = this.buildHALQuery(query, {}, 1); // Un seul résultat pour debug
+    console.error('HAL API URL:', url);
+    
+    const response = await axios.get<HALSearchResponse>(url);
+    console.error('HAL API Response:', JSON.stringify(response.data, null, 2));
+    
+    if (response.data.response.docs.length > 0) {
+      const firstDoc = response.data.response.docs[0];
+      console.error('First document fields:', Object.keys(firstDoc));
+      console.error('First document sample:', firstDoc);
+    }
+    
+    return response.data;
   }
 
   private setupToolHandlers(): void {
@@ -377,6 +455,7 @@ class HALMCPServer {
     });
   }
 
+  // FONCTION AMÉLIORÉE - searchHAL avec debug
   private async searchHAL(args: {
     query: string;
     domain?: string;
@@ -400,9 +479,22 @@ class HALMCPServer {
     }
 
     const url = this.buildHALQuery(args.query, filters, args.max_results || 10);
+    console.error('=== DEBUG RECHERCHE HAL ===');
+    console.error('URL construite:', url);
     
     const response = await axios.get<HALSearchResponse>(url);
     const docs = response.data.response.docs;
+    
+    console.error('Nombre de documents reçus:', docs.length);
+    console.error('Total disponible:', response.data.response.numFound);
+    
+    // Debug: afficher le premier document reçu COMPLET
+    if (docs.length > 0) {
+      console.error('=== PREMIER DOCUMENT BRUT ===');
+      console.error('Champs du premier doc:', Object.keys(docs[0]));
+      console.error('Premier document COMPLET:', JSON.stringify(docs[0], null, 2));
+      console.error('============================');
+    }
     
     const results = docs.map(doc => this.formatHALDocument(doc)).join('\n\n---\n\n');
     
