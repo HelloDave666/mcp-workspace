@@ -1,70 +1,25 @@
-# project-context-manager MCP Server
+# Configuration Claude Desktop MCP
 
-A Model Context Protocol server
+## Configuration Active
+Fichier : `claude_desktop_config.json`
 
-This is a TypeScript-based MCP server that implements a simple notes system. It demonstrates core MCP concepts by providing:
-
-- Resources representing text notes with URIs and metadata
-- Tools for creating new notes
-- Prompts for generating summaries of notes
-
-## Features
-
-### Resources
-- List and access notes via `note://` URIs
-- Each note has a title, content and metadata
-- Plain text mime type for simple content access
-
-### Tools
-- `create_note` - Create new text notes
-  - Takes title and content as required parameters
-  - Stores note in server state
-
-### Prompts
-- `summarize_notes` - Generate a summary of all stored notes
-  - Includes all note contents as embedded resources
-  - Returns structured prompt for LLM summarization
-
-## Development
-
-Install dependencies:
-```bash
-npm install
-```
-
-Build the server:
-```bash
-npm run build
-```
-
-For development with auto-rebuild:
-```bash
-npm run watch
-```
+**5 connecteurs MCP actifs :**
+- `arxiv-server` - Import articles académiques
+- `linkedin-strategic` - Analyse réseau professionnel  
+- `project-context-manager` - Gestionnaire de contexte
+- `zotero-mcp` - Gestion bibliographique
+- `github` - Intégration GitHub officielle
 
 ## Installation
+Copier le contenu de `claude_desktop_config.json` vers :
+C:\Users\DAVE666\AppData\Roaming\Claude\claude_desktop_config.json
 
-To use with Claude Desktop, add the server config:
+Puis redémarrer Claude Desktop.
 
-On MacOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "project-context-manager": {
-      "command": "/path/to/project-context-manager/build/index.js"
-    }
-  }
-}
-```
-
-### Debugging
-
-Since MCP servers communicate over stdio, debugging can be challenging. We recommend using the [MCP Inspector](https://github.com/modelcontextprotocol/inspector), which is available as a package script:
-
+## Compilation des serveurs
 ```bash
-npm run inspector
-```
-
-The Inspector will provide a URL to access debugging tools in your browser.
+# Compiler tous les serveurs personnalisés
+cd C:/Users/DAVE666/mcp-workspace/arxiv-server && npm run build
+cd C:/Users/DAVE666/mcp-workspace/linkedin-strategic && npm run build  
+cd C:/Users/DAVE666/mcp-workspace/project-context-manager && npm run build
+cd C:/Users/DAVE666/mcp-workspace/zotero-mcp && npm run build

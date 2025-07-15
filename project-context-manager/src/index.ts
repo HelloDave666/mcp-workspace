@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * MCP PROJECT CONTEXT MANAGER V3.3.1 - STORAGE RESILIENT JSON FIXED
+ * MCP PROJECT CONTEXT MANAGER V3.3.2 - STORAGE RESILIENT JSON FIXED + NEW FEATURES
+ * 
+ * NOUVELLES FONCTIONNALITES V3.3.2:
+ * - CORRECTION: Ajout du case create_project manquant
+ * - NOUVEAU: Fonction de renommage de projet (rename_project)
+ * - NOUVEAU: Fonction de suppression définitive de projet (delete_project)
  * 
  * CORRECTION CRITIQUE V3.3.1: 
  * - Correction definitive erreurs JSON dans nouveaux messages V3.3.0
@@ -153,7 +158,7 @@ let idMapping: ConversationMapping = {};
 const server = new Server(
   {
     name: 'project-context-manager',
-    version: '3.3.1',
+    version: '3.3.2',
   },
   {
     capabilities: {
@@ -331,7 +336,7 @@ async function saveData(): Promise<void> {
       decisions,
       documentation,
       lastUpdated: new Date().toISOString(),
-      version: '3.3.1',
+      version: '3.3.2',
       storage: {
         location: MAIN_DATA_DIR,
         migrated: true,
@@ -354,7 +359,7 @@ async function saveIdMapping(): Promise<void> {
       mapping: idMapping,
       lastUpdated: new Date().toISOString(),
       totalConversations: Object.keys(idMapping).length,
-      version: '3.3.1'
+      version: '3.3.2'
     };
     
     await fs.writeJson(ID_MAPPING_FILE, mappingData, { spaces: 2 });
@@ -443,11 +448,12 @@ function analyzeProjectIntegritySimple(): {
       full: conversations.filter(c => c.archiveType === 'full').length
     },
     recommendations: [
-      "Archives protegees par stockage centralise V3.3.1",
+      "Archives protegees par stockage centralise V3.3.2",
       "Systeme resistant aux mises a jour Claude Desktop"
     ]
   };
 }
+
 async function analyzeStorageHealth(): Promise<{
   mainStorage: boolean;
   backupsAvailable: number;
@@ -512,7 +518,53 @@ async function analyzeStorageHealth(): Promise<{
 }
 
 /**
- * CONFIGURATION DES OUTILS (étendue avec nouvelles fonctions)
+ * NOUVELLES FONCTIONS V3.3.2
+ */
+
+async function deleteProjectCompletely(projectId: string): Promise<{
+  project: Project;
+  deletedConversations: number;
+  deletedNotes: number;
+  deletedDecisions: number;
+  deletedDocumentation: number;
+}> {
+  // Trouver le projet
+  const project = projects.find(p => p.id === projectId);
+  if (!project) {
+    throw new Error(`Projet non trouvé: ${projectId}`);
+  }
+
+  // Compter les éléments à supprimer
+  const projectConversations = conversations.filter(c => c.project_id === projectId);
+  const projectNotes = notes.filter(n => n.project_id === projectId);
+  const projectDecisions = decisions.filter(d => d.project_id === projectId);
+  const projectDocs = documentation.filter(d => d.project_id === projectId);
+
+  // Supprimer tous les éléments associés
+  conversations = conversations.filter(c => c.project_id !== projectId);
+  notes = notes.filter(n => n.project_id !== projectId);
+  decisions = decisions.filter(d => d.project_id !== projectId);
+  documentation = documentation.filter(d => d.project_id !== projectId);
+
+  // Supprimer le projet
+  projects = projects.filter(p => p.id !== projectId);
+
+  // Mettre à jour currentProject si nécessaire
+  if (currentProject && currentProject.id === projectId) {
+    currentProject = projects.length > 0 ? projects[0] : null;
+  }
+
+  return {
+    project,
+    deletedConversations: projectConversations.length,
+    deletedNotes: projectNotes.length,
+    deletedDecisions: projectDecisions.length,
+    deletedDocumentation: projectDocs.length
+  };
+}
+
+/**
+ * CONFIGURATION DES OUTILS (étendue avec nouvelles fonctions V3.3.2)
  */
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
@@ -537,6 +589,34 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['name', 'description']
         }
       },
+      
+      // === NOUVEAUX OUTILS V3.3.2 ===
+      {
+        name: 'rename_project',
+        description: 'MANAGE - Renommer un projet existant',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project_id: { type: 'string', description: 'ID du projet à renommer' },
+            new_name: { type: 'string', description: 'Nouveau nom du projet' },
+            new_description: { type: 'string', description: 'Nouvelle description (optionnelle)' }
+          },
+          required: ['project_id', 'new_name']
+        }
+      },
+      {
+        name: 'delete_project',
+        description: 'DANGER - Supprimer définitivement un projet et toutes ses données',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project_id: { type: 'string', description: 'ID du projet à supprimer' },
+            confirm_deletion: { type: 'boolean', description: 'Confirmation explicite de suppression', default: false }
+          },
+          required: ['project_id', 'confirm_deletion']
+        }
+      },
+      
       {
         name: 'import_claude_conversation',
         description: 'ARCHIVE - FONCTION PRINCIPALE - Importer et archiver une conversation Claude',
@@ -630,13 +710,157 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 /**
- * GESTIONNAIRE DES APPELS D'OUTILS (étendu avec nouvelles fonctions)
+ * GESTIONNAIRE DES APPELS D'OUTILS (étendu avec nouvelles fonctions V3.3.2)
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
     switch (name) {
+      // === CORRECTION V3.3.2: AJOUT DU CASE CREATE_PROJECT MANQUANT ===
+      case 'create_project': {
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
+        const { name: projectName, description, project_type = 'custom', technologies = [] } = args as any;
+        
+        // Vérifier que le nom n'existe pas déjà
+        const existingProject = projects.find(p => p.name.toLowerCase() === projectName.toLowerCase());
+        if (existingProject) {
+          throw new McpError(ErrorCode.InvalidParams, `Un projet avec le nom "${projectName}" existe déjà`);
+        }
+
+        const project: Project = {
+          id: generateId(),
+          name: sanitizeForJson(projectName),
+          description: sanitizeForJson(description),
+          type: project_type,
+          technologies: Array.isArray(technologies) ? technologies.map(t => sanitizeForJson(t)) : [],
+          created: new Date().toISOString(),
+          phase: 'initial-setup',
+          status: 'active'
+        };
+
+        projects.push(project);
+        currentProject = project; // Auto-switcher vers le nouveau projet
+        await saveData();
+
+        return {
+          content: [{
+            type: 'text',
+            text: createSafeMessage(`NOUVEAU PROJET CREE AVEC SUCCES
+
+Nom : {0}
+Description : {1}
+Type : {2}
+Technologies : {3}
+ID : {4}
+Phase : {5}
+
+Projet actif pour archivage. Vous pouvez maintenant importer des conversations Claude.`,
+              project.name,
+              project.description,
+              project.type,
+              project.technologies.join(', '),
+              project.id,
+              project.phase)
+          }]
+        };
+      }
+
+      // === NOUVEAUX OUTILS V3.3.2 ===
+      case 'rename_project': {
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
+        const { project_id, new_name, new_description } = args as any;
+        
+        const project = projects.find(p => p.id === project_id);
+        if (!project) {
+          throw new McpError(ErrorCode.InvalidParams, `Projet non trouvé: ${project_id}`);
+        }
+
+        // Vérifier que le nouveau nom n'existe pas déjà (sauf pour le projet actuel)
+        const existingProject = projects.find(p => p.name.toLowerCase() === new_name.toLowerCase() && p.id !== project_id);
+        if (existingProject) {
+          throw new McpError(ErrorCode.InvalidParams, `Un autre projet porte déjà le nom "${new_name}"`);
+        }
+
+        const oldName = project.name;
+        project.name = sanitizeForJson(new_name);
+        
+        if (new_description) {
+          project.description = sanitizeForJson(new_description);
+        }
+
+        await saveData();
+
+        return {
+          content: [{
+            type: 'text',
+            text: createSafeMessage(`PROJET RENOMME AVEC SUCCES
+
+Ancien nom : {0}
+Nouveau nom : {1}
+Description : {2}
+ID : {3}
+
+Le projet a été renommé et toutes les données associées (conversations, notes, etc.) sont conservées.`,
+              oldName,
+              project.name,
+              project.description,
+              project.id)
+          }]
+        };
+      }
+
+      case 'delete_project': {
+        if (!args || typeof args !== 'object') {
+          throw new McpError(ErrorCode.InvalidParams, "Arguments manquants");
+        }
+
+        const { project_id, confirm_deletion } = args as any;
+        
+        if (!confirm_deletion) {
+          throw new McpError(ErrorCode.InvalidParams, "Suppression annulée - confirmation explicite requise (confirm_deletion: true)");
+        }
+
+        const deletionResult = await deleteProjectCompletely(project_id);
+        await saveData();
+
+        return {
+          content: [{
+            type: 'text',
+            text: createSafeMessage(`PROJET SUPPRIME DEFINITIVEMENT
+
+Projet supprimé : {0}
+Description : {1}
+ID : {2}
+
+Données supprimées :
+- Conversations : {3}
+- Notes : {4}
+- Décisions techniques : {5}
+- Documentation : {6}
+
+ATTENTION: Cette suppression est définitive et irréversible.
+Toutes les données associées ont été supprimées.
+
+{7}`,
+              deletionResult.project.name,
+              deletionResult.project.description,
+              deletionResult.project.id,
+              deletionResult.deletedConversations.toString(),
+              deletionResult.deletedNotes.toString(),
+              deletionResult.deletedDecisions.toString(),
+              deletionResult.deletedDocumentation.toString(),
+              currentProject ? `Projet actif actuel : ${currentProject.name}` : 'Aucun projet actif - créez ou sélectionnez un projet')
+          }]
+        };
+      }
+
       // === NOUVEAUX OUTILS V3.3.0 ===
       case 'check_storage_health': {
         const health = await analyzeStorageHealth();
@@ -659,7 +883,7 @@ Donnees legacy detectees : {5}
 Recommandations :
 {7}
 
-Architecture V3.3.1 : RESILIENTE AUX MISES A JOUR CLAUDE`,
+Architecture V3.3.2 : RESILIENTE AUX MISES A JOUR CLAUDE`,
               health.mainStorage ? 'OPERATIONNEL' : 'MANQUANT',
               MAIN_DATA_DIR,
               health.totalSize,
@@ -738,7 +962,7 @@ Sources detectees : {2}
         return {
           content: [{
             type: 'text',
-            text: createSafeMessage(`INFORMATIONS STOCKAGE CENTRALISE V3.3.1
+            text: createSafeMessage(`INFORMATIONS STOCKAGE CENTRALISE V3.3.2
 
 EMPLACEMENT PRINCIPAL :
 {0}
@@ -750,13 +974,14 @@ FICHIERS PRINCIPAUX :
 DOSSIER SAUVEGARDES :
 {1}
 
-AVANTAGES ARCHITECTURE V3.3.1 :
+AVANTAGES ARCHITECTURE V3.3.2 :
 ✅ Independent des versions Claude Desktop
 ✅ Survit aux mises a jour automatiques  
 ✅ Sauvegardes automatiques rotatives
 ✅ Migration automatique donnees legacy
 ✅ Emplacement standard Windows (%APPDATA%)
 ✅ Pas de perte lors maj Claude 0.10.14 → 0.10.38
+✅ Nouvelles fonctions gestion projets V3.3.2
 
 ANCIENS EMPLACEMENTS MONITORES :
 {2}
@@ -997,7 +1222,7 @@ Resultats trouves : {1}
         return {
           content: [{
             type: 'text',
-            text: createSafeMessage(`ANALYSE D'INTEGRITE DES ARCHIVES - STOCKAGE CENTRALISE V3.3.1
+            text: createSafeMessage(`ANALYSE D'INTEGRITE DES ARCHIVES - STOCKAGE CENTRALISE V3.3.2
 
 Statistiques generales :
 - Projets totaux : {0}
@@ -1011,11 +1236,12 @@ Statistiques d'archivage :
 Stockage centralise : ACTIF
 Emplacement : {5}
 
-Avantages stockage V3.3.1 :
+Avantages stockage V3.3.2 :
 ✅ Resistant aux mises a jour Claude Desktop
 ✅ Sauvegarde automatique avant modifications
 ✅ Migration automatique donnees dispersees
 ✅ Aucune perte lors maj 0.10.14 → 0.10.38
+✅ Gestion avancee projets (renommage, suppression)
 
 Recommandations :
 {6}`,
@@ -1059,11 +1285,12 @@ ID : {2}`, title, currentProject?.name || 'General', note.id)
           }]
         };
       }
+
       case 'list_projects': {
         return {
           content: [{
             type: 'text',
-            text: createSafeMessage(`PROJETS DISPONIBLES - STOCKAGE CENTRALISE V3.3.1
+            text: createSafeMessage(`PROJETS DISPONIBLES - STOCKAGE CENTRALISE V3.3.2
 
 Emplacement : {0}
 
@@ -1079,14 +1306,13 @@ Emplacement : {0}
                   status: p.status,
                   technologies: p.technologies
                 })),
-                storage_version: '3.3.1',
-                resilient_to_claude_updates: true
+                storage_version: '3.3.2',
+                resilient_to_claude_updates: true,
+                new_features: ['rename_project', 'delete_project', 'improved_management']
               }, null, 2))
           }]
         };
       }
-
-      // ... (autres outils existants adaptés)
 
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Outil inconnu: ${name}`);
@@ -1114,9 +1340,10 @@ async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     
-    console.error('Project Context Manager V3.3.1 STORAGE RESILIENT JSON FIXED demarre');
+    console.error('Project Context Manager V3.3.2 STORAGE RESILIENT + NEW FEATURES demarre');
     console.error(`Stockage centralise: ${MAIN_DATA_DIR}`);
     console.error('Architecture resistante aux mises a jour Claude Desktop');
+    console.error('Nouvelles fonctionnalités: create_project (corrigé), rename_project, delete_project');
   } catch (error) {
     console.error('Erreur démarrage:', error);
     process.exit(1);
