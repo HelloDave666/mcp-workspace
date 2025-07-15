@@ -28,6 +28,13 @@
         "NODE_ENV": "production"
       }
     },
+    "hal-mcp": {
+      "command": "node",
+      "args": ["C:/Users/DAVE666/mcp-workspace/hal-mcp/build/index.js"],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
     "github": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],

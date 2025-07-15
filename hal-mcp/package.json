@@ -1,0 +1,33 @@
+﻿{
+  "name": "hal-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for HAL (Hyper Articles en Ligne) integration - Sciences sociales et anthropologie",
+  "main": "build/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "dev": "tsc && node build/index.js",
+    "clean": "rm -rf build"
+  },
+  "keywords": [
+    "mcp",
+    "hal",
+    "archives-ouvertes",
+    "sciences-sociales",
+    "anthropologie",
+    "recherche-academique"
+  ],
+  "author": "David Arnaud",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.5.0",
+    "axios": "^1.6.0",
+    "xml2js": "^0.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/xml2js": "^0.4.14",
+    "typescript": "^5.0.0"
+  }
+}
