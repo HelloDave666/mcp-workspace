@@ -34,16 +34,9 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as os from 'os';
 
-// ==========================================
-// FORCER LE CHEMIN DE DONNEES - WORKSPACE
-// ==========================================
-process.env.CLAUDE_CONTEXT_DATA_PATH = 'C:\\Users\\DAVE666\\ClaudeContextManager';
-console.error('🔧 [WORKSPACE] CHEMIN FORCE DEPUIS SOURCE TS:', process.env.CLAUDE_CONTEXT_DATA_PATH);
-// ==========================================
-
 // NOUVELLE CONFIGURATION STOCKAGE CENTRALISÉ
 const APPDATA_DIR = process.env.APPDATA || os.homedir();
-const MAIN_DATA_DIR = process.env.CLAUDE_CONTEXT_DATA_PATH || path.join(APPDATA_DIR, 'ClaudeContextManager');
+const MAIN_DATA_DIR = path.join(APPDATA_DIR, 'ClaudeContextManager');
 const PROJECTS_FILE = path.join(MAIN_DATA_DIR, 'projects.json');
 const ID_MAPPING_FILE = path.join(MAIN_DATA_DIR, 'conversation_id_mapping.json');
 const BACKUP_DIR = path.join(MAIN_DATA_DIR, 'backups');

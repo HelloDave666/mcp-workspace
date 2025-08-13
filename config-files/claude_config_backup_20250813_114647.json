@@ -1,0 +1,44 @@
+{
+  "mcpServers": {
+    "arxiv-server": {
+      "command": "node",
+      "args": ["C:/Users/DAVE666/mcp-workspace/arxiv-server/build/index.js"],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    "linkedin-strategic": {
+      "command": "node", 
+      "args": ["C:/Users/DAVE666/mcp-workspace/linkedin-strategic/build/index.js"],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    "project-context-manager": {
+      "command": "node",
+      "args": ["C:/Users/DAVE666/mcp-workspace/project-context-manager/build/index.js"],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    "zotero-mcp": {
+      "command": "node",
+      "args": ["C:/Users/DAVE666/mcp-workspace/zotero-mcp/build/index.js"],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    "hal-mcp": {
+      "command": "node",
+      "args": ["C:/Users/DAVE666/mcp-workspace/hal-mcp/build/index.js"],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {}
+    }
+  }
+}
