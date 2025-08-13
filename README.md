@@ -2,188 +2,220 @@
 
 Workspace de développement pour connecteurs MCP (Model Context Protocol) personnalisés. Écosystème complet pour recherche académique, gestion bibliographique et analyse stratégique.
 
+## Architecture Resiliente V3.3.2
+
+**NOUVEAU** : Architecture résistante aux mises à jour Claude Desktop avec forçage de chemin intégré.
+
 ## Structure du Projet
 
 ```
 mcp-workspace/
-├── arxiv-server/           # Connecteur arXiv pour articles académiques
-├── config-files/          # Configurations Claude Desktop
-├── hal-mcp/               # Connecteur HAL (sciences sociales françaises)
-├── linkedin-strategic/     # Connecteur LinkedIn pour analyse réseau
-├── project-context-manager/ # Gestionnaire de contexte et archivage
-├── scripts/               # Scripts d'installation et utilitaires
-├── zotero-mcp/           # Connecteur Zotero pour gestion bibliographique
-└── .gitignore           # Exclusions Git
+├── arxiv-server/              # Connecteur arXiv pour recherche académique
+├── hal-mcp/                   # Connecteur HAL (archives ouvertes françaises)
+├── linkedin-strategic/        # Analyse écosystème financement européen
+├── project-context-manager/   # Gestionnaire de contexte (RÉSILIENT)
+├── zotero-mcp/               # Intégration Zotero bibliographique
+├── github/                   # Intégration GitHub (si configuré)
+├── config-files/             # Configurations Claude Desktop
+└── scripts/                  # Scripts de démarrage et maintenance
 ```
 
-## Connecteurs Disponibles
+## Connecteurs MCP Disponibles
 
-### Recherche Académique
-- **arxiv-server** - Import et recherche d'articles depuis arXiv
-- **hal-mcp** - Accès aux publications HAL (sciences sociales)
-- **zotero-mcp** - Gestion bibliographique complète
+### **Recherche Académique**
+- **arXiv Server** : Recherche directe dans les archives arXiv
+- **HAL-MCP** : Accès aux archives ouvertes françaises (116,942+ documents)
+- **Zotero-MCP** : Gestion bibliographique complète
 
-### Outils de Développement
-- **project-context-manager** - Archivage de conversations et gestion de projets
-- **linkedin-strategic** - Analyse de réseau professionnel
-- **github** - Intégration GitHub (connecteur officiel)
+### **Analyse Stratégique** 
+- **LinkedIn Strategic** : Analyse écosystème financement européen CRAFT
+- **GitHub** : Gestion repositories et code
 
-## Installation Rapide
+### **Gestion de Projet**
+- **Project Context Manager V3.3.2** : Archivage conversations et contexte
+  - **Stockage centralisé résistant** : `C:\Users\DAVE666\ClaudeContextManager`
+  - **Résistance mises à jour** Claude Desktop
+  - **223 conversations archivées** sur 5 projets
+  - **Sauvegarde automatique** (10 backups rotatifs)
 
-### 1. Cloner le repository
+## Installation et Configuration
+
+### Prérequis
+- Node.js 18+
+- Claude Desktop
+- Accès API (Zotero, LinkedIn, etc.)
+
+### Configuration Claude Desktop
+
+```json
+{
+  "mcpServers": {
+    "project-context-manager": {
+      "command": "node",
+      "args": ["C:/Users/DAVE666/mcp-workspace/project-context-manager/build/index.js"],
+      "env": {
+        "NODE_ENV": "production",
+        "CLAUDE_CONTEXT_DATA_PATH": "C:\\Users\\DAVE666\\ClaudeContextManager"
+      }
+    },
+    "arxiv-server": {
+      "command": "node", 
+      "args": ["C:/Users/DAVE666/mcp-workspace/arxiv-server/server.js"]
+    },
+    "hal-mcp": {
+      "command": "node",
+      "args": ["C:/Users/DAVE666/mcp-workspace/hal-mcp/server.js"]
+    },
+    "zotero-mcp": {
+      "command": "node",
+      "args": ["C:/Users/DAVE666/mcp-workspace/zotero-mcp/server.js"]
+    },
+    "linkedin-strategic": {
+      "command": "node",
+      "args": ["C:/Users/DAVE666/mcp-workspace/linkedin-strategic/server.js"]
+    }
+  }
+}
+```
+
+## Projets Actifs
+
+| Projet | Technologies | Phase | Conversations |
+|--------|-------------|-------|---------------|
+| **Heart Of Glass** | IMU, Audio Processing, Ludopédagogie | Development | 58+ |
+| **MCP Integration** | TypeScript, Node.js, WebSocket | Setup | 12+ |
+| **AllamBik** | Python, Kindle, OCR | Production | 7+ |
+| **Masque Sablage** | Blender, 3D→2D, Manufacturing | Setup | 5+ |
+| **Zotero** | API, Bibliography, Research | Setup | 8+ |
+
+## Fonctionnalités Sécurisées
+
+### Project Context Manager V3.3.2
+- **Forçage de chemin** dans le code source TypeScript
+- **Résistance garantie** aux mises à jour Claude Desktop
+- **Archivage intelligent** (complet/résumé)
+- **Sauvegarde automatique** avant modifications
+- **Migration automatique** données legacy
+
+### Sécurité des Données
+- **Stockage centralisé** : `%APPDATA%\ClaudeContextManager`
+- **Chiffrement** des tokens API
+- **Isolation** des environnements par connecteur
+- **Backup rotatif** automatique
+
+## Démarrage Rapide
+
+### 1. Cloner le Repository
 ```bash
 git clone https://github.com/HelloDave666/mcp-workspace.git
 cd mcp-workspace
 ```
 
-### 2. Installer les dépendances
+### 2. Installation des Dépendances
 ```bash
-# Installer et compiler tous les connecteurs
-cd arxiv-server && npm install && npm run build && cd ..
-cd hal-mcp && npm install && npm run build && cd ..
-cd linkedin-strategic && npm install && npm run build && cd ..
+# Pour chaque connecteur
 cd project-context-manager && npm install && npm run build && cd ..
-cd zotero-mcp && npm install && npm run build && cd ..
+cd arxiv-server && npm install && cd ..
+cd hal-mcp && npm install && cd ..
+cd zotero-mcp && npm install && cd ..
+cd linkedin-strategic && npm install && cd ..
 ```
 
-### 3. Configurer Claude Desktop
-Copier la configuration depuis `config-files/claude_desktop_config.json` vers :
+### 3. Configuration
+- Copiez `config-files/claude_desktop_config.json` vers `%APPDATA%\Claude\`
+- Configurez vos tokens API dans chaque connecteur
 
-**Windows :**
-```
-%APPDATA%\Claude\claude_desktop_config.json
-```
-
-**macOS :**
-```
-~/Library/Application Support/Claude/claude_desktop_config.json
+### 4. Démarrage
+```bash
+# Utiliser les scripts de démarrage
+scripts/start-all-mcp.bat
 ```
 
-### 4. Redémarrer Claude Desktop
+## Métriques de Performance
 
-## Configuration
+- **223 conversations** archivées et indexées
+- **5 projets actifs** avec contexte complet  
+- **1.09 Mo** de données structurées
+- **10 sauvegardes** rotatives automatiques
+- **0 perte de données** lors mises à jour Claude
 
-Le fichier `config-files/claude_desktop_config.json` contient la configuration pour 6 connecteurs MCP :
+## Maintenance et Debugging
 
-```json
-{
-  "mcpServers": {
-    "arxiv-server": { ... },
-    "linkedin-strategic": { ... },
-    "project-context-manager": { ... },
-    "zotero-mcp": { ... },
-    "hal-mcp": { ... },
-    "github": { ... }
-  }
-}
+### Scripts Utiles
+```bash
+# Vérifier la santé du système
+scripts/check-health.bat
+
+# Sauvegarder manuellement
+scripts/backup-data.bat
+
+# Nettoyer les logs
+scripts/clean-logs.bat
 ```
 
-## Fonctionnalités par Connecteur
+### Logs et Debugging
+- **Logs centralisés** : `logs/`
+- **Monitoring santé** : Project Context Manager
+- **Alertes automatiques** en cas de problème
 
-### ArXiv Server
-- Recherche d'articles académiques
-- Import direct dans Claude
+## Intégrations Externes
 
-### HAL MCP
-- Recherche spécialisée en sciences sociales
-- Support anthropologie, phénoménologie, artisanat
-- Export bibliographies BibTeX
+### APIs Configurées
+- **Zotero API** : Gestion bibliographique (87 éléments)
+- **arXiv API** : Recherche académique automatisée
+- **HAL API** : Archives ouvertes françaises
+- **LinkedIn API** : Analyse réseaux professionnels
+- **GitHub API** : Gestion code et repositories
 
-### Zotero MCP
-- Gestion de bibliothèque personnelle
-- Import depuis arXiv et HAL
-- Organisation en collections thématiques
+### Services de Recherche
+- **Recherche sémantique** dans les conversations
+- **Indexation automatique** des nouveaux contenus
+- **Recommandations contextuelles** basées sur l'historique
 
-### Project Context Manager
-- Archivage de conversations Claude
-- Gestion de projets de développement
-- Système de sauvegarde résilient
+## Roadmap
 
-### LinkedIn Strategic
-- Analyse de réseau professionnel
-- Identification d'opportunités de financement
-- Recherche d'experts par domaine
+### Version 3.4.0 (Prochaine)
+- Interface web de monitoring
+- Export automatique vers Obsidian
+- Intégration Notion API
+- Analytics avancées des conversations
 
-## Développement
-
-### Prérequis
-- Node.js 18+
-- TypeScript 5.0+
-- npm ou yarn
-
-### Structure d'un connecteur MCP
-```
-connecteur-name/
-├── src/
-│   └── index.ts          # Serveur MCP principal
-├── package.json          # Dépendances et scripts
-├── tsconfig.json         # Configuration TypeScript
-└── README.md            # Documentation spécifique
-```
-
-### Ajouter un nouveau connecteur
-1. Créer le dossier dans `mcp-workspace/`
-2. Implémenter le serveur MCP avec SDK officiel
-3. Ajouter la configuration dans `config-files/`
-4. Compiler et tester
-
-## Scripts Utilitaires
-
-Le dossier `scripts/` contient des utilitaires pour :
-- Installation automatisée
-- Compilation en lot
-- Tests de connectivité
-- Mise à jour des configurations
-
-## Domaines d'Application
-
-### Recherche Académique
-- Sciences sociales (HAL)
-- Sciences exactes (arXiv)
-- Gestion bibliographique (Zotero)
-
-### Développement
-- Gestion de projets
-- Archivage de contexte
-- Collaboration (GitHub)
-
-### Analyse Stratégique
-- Réseaux professionnels
-- Identification d'experts
-- Opportunités de financement
-
-## Technologies
-
-- **MCP SDK** - Protocol officiel Anthropic
-- **TypeScript** - Développement typé
-- **Node.js** - Runtime
-- **APIs** - HAL, Zotero, arXiv, LinkedIn, GitHub
-
-## Documentation
-
-Chaque connecteur dispose de sa propre documentation :
-- `arxiv-server/README.md`
-- `hal-mcp/README.md`
-- `linkedin-strategic/README.md`
-- `project-context-manager/README.md`
-- `zotero-mcp/README.md`
+### Version 4.0.0 (Future)
+- AI-powered conversation summarization
+- Multi-user collaboration
+- Cloud synchronization
+- Mobile companion app
 
 ## Contribution
 
-1. Fork le projet
-2. Créer une branche feature
-3. Implémenter le connecteur ou l'amélioration
-4. Tester avec Claude Desktop
-5. Soumettre une Pull Request
+Les contributions sont les bienvenues ! Consultez le guide de contribution dans `CONTRIBUTING.md`.
+
+## Changelog
+
+### v3.3.2 (Août 2025)
+- **CRITICAL FIX** : Forçage du chemin de données dans le source TypeScript
+- Récupération complète des 5 projets et 223 conversations
+- Architecture 100% résistante aux mises à jour Claude Desktop
+- Nouvelles fonctions de gestion avancée des projets
+
+### v3.3.1 (Juillet 2025)
+- Correction erreurs JSON et échappement sécurisé
+- Compatibilité Claude Desktop 0.10.38
+- Migration automatique données legacy
+
+### v3.3.0 (Juin 2025)
+- Stockage centralisé résilient
+- Système de sauvegarde automatique
+- Détection et migration données dispersées
 
 ## Licence
 
-MIT License - Voir fichier LICENSE pour détails
-
-## Auteur
-
-**David Arnaud** - Développement et maintenance de l'écosystème MCP
+MIT License - Voir `LICENSE` pour plus de détails.
 
 ---
 
-*Workspace complet pour connecteurs MCP spécialisés en recherche académique et analyse stratégique.*
+**Repository** : [https://github.com/HelloDave666/mcp-workspace](https://github.com/HelloDave666/mcp-workspace)
+
+**Maintenu par** : David Arnaud (@HelloDave666)
+
+**Dernière mise à jour** : Août 2025 - Architecture V3.3.2 Resilient
