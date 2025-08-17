@@ -1,0 +1,29 @@
+﻿# Dependencies
+node_modules/
+package-lock.json
+
+# Production builds
+dist/
+dist-electron/
+dist-app/
+
+# Development
+*.log
+*.local
+.env
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Electron
+electron-builder.yml
+*.asar
+
+# Backups
+*.backup
+*.bak

@@ -1,0 +1,12 @@
+﻿{
+  'readOnlyMode': false,
+  'allowEditing': {
+    'projectNames': true,
+    'projectDescriptions': true,
+    'conversations': false,
+    'deleteProjects': false,
+    'deleteConversations': false
+  },
+  'dataPath': 'C:\\Users\\DAVE666\\ClaudeContextManager',
+  'backupBeforeEdit': true
+}

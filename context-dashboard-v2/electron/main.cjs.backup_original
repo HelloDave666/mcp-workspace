@@ -1,0 +1,356 @@
+﻿const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const path = require('path')
+const fs = require('fs-extra')
+
+// Configuration
+const isDev = process.env.NODE_ENV === 'development'
+const DATA_PATH = 'C:\\Users\\DAVE666\\ClaudeContextManager'
+process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true'
+
+let mainWindow
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 1200,
+    minHeight: 700,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      webSecurity: isDev ? false : true,
+      preload: path.join(__dirname, 'preload.cjs')
+    },
+    show: false,
+    titleBarStyle: 'default'
+  })
+
+  // Charger l'application
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:5173')
+    mainWindow.webContents.openDevTools()
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+  }
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show()
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+}
+
+// IPC Handlers pour communication avec React
+ipcMain.handle('get-projects', async () => {
+  try {
+    const projectsFile = path.join(DATA_PATH, 'projects.json')
+    if (await fs.pathExists(projectsFile)) {
+      const data = await fs.readJson(projectsFile)
+      return data
+    }
+    return { projects: [], conversations: [] }
+  } catch (error) {
+    console.error('Erreur lecture projets:', error)
+    return { projects: [], conversations: [] }
+  }
+})
+
+ipcMain.handle('get-storage-health', async () => {
+  try {
+    const projectsFile = path.join(DATA_PATH, 'projects.json')
+    const mappingFile = path.join(DATA_PATH, 'conversation_id_mapping.json')
+    const backupDir = path.join(DATA_PATH, 'backups')
+    
+    let totalSize = 0
+    let backupCount = 0
+    
+    if (await fs.pathExists(projectsFile)) {
+      const stats = await fs.stat(projectsFile)
+      totalSize += stats.size
+    }
+    
+    if (await fs.pathExists(mappingFile)) {
+      const stats = await fs.stat(mappingFile)
+      totalSize += stats.size
+    }
+    
+    if (await fs.pathExists(backupDir)) {
+      const backups = await fs.readdir(backupDir)
+      backupCount = backups.filter(name => name.startsWith('backup_')).length
+    }
+    
+    return {
+      mainStorage: await fs.pathExists(projectsFile),
+      totalSize: formatBytes(totalSize),
+      backupCount,
+      dataPath: DATA_PATH,
+      lastModified: await getLastModified(projectsFile)
+    }
+  } catch (error) {
+    console.error('Erreur analyse santé:', error)
+    return {
+      mainStorage: false,
+      totalSize: '0 B',
+      backupCount: 0,
+      dataPath: DATA_PATH,
+      lastModified: null
+    }
+  }
+})
+
+// Handler pour renommer un projet
+ipcMain.handle('rename-project', async (event, projectId, newName, newDescription) => {
+  try {
+    const projectsFile = path.join(DATA_PATH, 'projects.json')
+    if (await fs.pathExists(projectsFile)) {
+      const data = await fs.readJson(projectsFile)
+      
+      // Trouver et modifier le projet
+      const project = data.projects.find(p => p.id === projectId)
+      if (project) {
+        project.name = newName
+        if (newDescription !== undefined) {
+          project.description = newDescription
+        }
+        
+        // Sauvegarder les modifications
+        await fs.writeJson(projectsFile, data, { spaces: 2 })
+        return { success: true, project }
+      }
+    }
+    return { success: false, error: 'Projet non trouvé' }
+  } catch (error) {
+    console.error('Erreur renommage projet:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Handler pour créer un backup manuel
+ipcMain.handle('create-backup', async () => {
+  try {
+    const now = new Date()
+    const dateStr = now.toISOString().split('T')[0]
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-')
+    const timestamp = dateStr + '_' + timeStr
+    
+    const backupDir = path.join(DATA_PATH, 'manual_backups')
+    await fs.ensureDir(backupDir)
+    
+    // Sauvegarder projects.json
+    const projectsFile = path.join(DATA_PATH, 'projects.json')
+    const backupFile = path.join(backupDir, 'backup_manual_' + timestamp + '.json')
+    
+    if (await fs.pathExists(projectsFile)) {
+      await fs.copy(projectsFile, backupFile)
+      
+      // Sauvegarder aussi le mapping des conversations
+      const mappingFile = path.join(DATA_PATH, 'conversation_id_mapping.json')
+      if (await fs.pathExists(mappingFile)) {
+        const mappingBackup = path.join(backupDir, 'mapping_manual_' + timestamp + '.json')
+        await fs.copy(mappingFile, mappingBackup)
+      }
+      
+      // Compter les fichiers de backup
+      const backups = await fs.readdir(backupDir)
+      const manualBackups = backups.filter(f => f.startsWith('backup_manual_'))
+      
+      return { 
+        success: true, 
+        filename: 'backup_manual_' + timestamp + '.json',
+        path: backupDir,
+        totalBackups: manualBackups.length
+      }
+    }
+    return { success: false, error: 'Fichier projects.json non trouvé' }
+  } catch (error) {
+    console.error('Erreur création backup:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Handler pour exporter un backup vers un dossier choisi
+ipcMain.handle('export-backup', async () => {
+  try {
+    const dateStr = new Date().toISOString().split('T')[0]
+    
+    // Demander où sauvegarder
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Exporter la sauvegarde',
+      defaultPath: 'context-manager-backup-' + dateStr + '.json',
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    })
+    
+    if (!result.canceled && result.filePath) {
+      const projectsFile = path.join(DATA_PATH, 'projects.json')
+      await fs.copy(projectsFile, result.filePath)
+      
+      // Créer aussi un dossier avec toutes les données
+      const exportDir = result.filePath.replace('.json', '_complete')
+      await fs.ensureDir(exportDir)
+      
+      // Copier tout le contenu
+      await fs.copy(DATA_PATH, exportDir, {
+        filter: (src) => !src.includes('node_modules')
+      })
+      
+      return { 
+        success: true, 
+        exportPath: result.filePath,
+        completePath: exportDir
+      }
+    }
+    return { success: false, error: 'Export annulé' }
+  } catch (error) {
+    console.error('Erreur export backup:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+
+
+// Handler pour analyser la structure des conversations
+ipcMain.handle('analyze-conversations', async () => {
+  try {
+    const projectsFile = path.join(DATA_PATH, 'projects.json')
+    if (await fs.pathExists(projectsFile)) {
+      const data = await fs.readJson(projectsFile)
+      
+      // Analyser toutes les conversations
+      const analysis = {
+        total: data.conversations.length,
+        withContent: 0,
+        withSummary: 0,
+        markedFull: 0,
+        markedSummary: 0,
+        avgContentLengthFull: 0,
+        avgContentLengthSummary: 0,
+        samples: {
+          full: null,
+          summary: null
+        }
+      }
+      
+      let totalFullLength = 0
+      let totalSummaryLength = 0
+      let fullWithContent = 0
+      let summaryWithContent = 0
+      
+      data.conversations.forEach(conv => {
+        if (conv.summary) analysis.withSummary++
+        if (conv.content) analysis.withContent++
+        
+        const isFullMarked = conv.summary && conv.summary.includes('[full]')
+        const isSummaryMarked = conv.summary && conv.summary.includes('[summary]')
+        
+        if (isFullMarked) {
+          analysis.markedFull++
+          if (conv.content) {
+            totalFullLength += conv.content.length
+            fullWithContent++
+          }
+          if (!analysis.samples.full) {
+            analysis.samples.full = {
+              id: conv.id,
+              summaryLength: conv.summary ? conv.summary.length : 0,
+              contentLength: conv.content ? conv.content.length : 0,
+              hasContent: !!conv.content,
+              fields: Object.keys(conv)
+            }
+          }
+        } else {
+          analysis.markedSummary++
+          if (conv.content) {
+            totalSummaryLength += conv.content.length
+            summaryWithContent++
+          }
+          if (!analysis.samples.summary) {
+            analysis.samples.summary = {
+              id: conv.id,
+              summaryLength: conv.summary ? conv.summary.length : 0,
+              contentLength: conv.content ? conv.content.length : 0,
+              hasContent: !!conv.content,
+              fields: Object.keys(conv)
+            }
+          }
+        }
+      })
+      
+      // Calculer les moyennes
+      if (fullWithContent > 0) {
+        analysis.avgContentLengthFull = Math.round(totalFullLength / fullWithContent)
+      }
+      if (summaryWithContent > 0) {
+        analysis.avgContentLengthSummary = Math.round(totalSummaryLength / summaryWithContent)
+      }
+      
+      analysis.fullWithContent = fullWithContent
+      analysis.summaryWithContent = summaryWithContent
+      
+      return analysis
+    }
+    return { error: 'Fichier non trouvé' }
+  } catch (error) {
+    console.error('Erreur analyse:', error)
+    return { error: error.message }
+  }
+})
+
+// Handler pour ouvrir un dossier dans l'explorateur
+ipcMain.handle('open-folder', async (event, folderPath) => {
+  const { shell } = require('electron')
+  try {
+    await shell.openPath(folderPath)
+    return { success: true }
+  } catch (error) {
+    console.error('Erreur ouverture dossier:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Utilitaires
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+async function getLastModified(filePath) {
+  try {
+    if (await fs.pathExists(filePath)) {
+      const stats = await fs.stat(filePath)
+      return stats.mtime
+    }
+    return null
+  } catch (error) {
+    return null
+  }
+}
+
+// Events Electron
+app.whenReady().then(createWindow)
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
+})
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow()
+  }
+})
+
+
+
+
+
+
