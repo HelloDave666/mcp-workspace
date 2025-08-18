@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * MCP ZOTERO SERVER V1.0.0 - BIBLIOGRAPHIC MANAGEMENT
+ * MCP ZOTERO SERVER V1.1.0 - BIBLIOGRAPHIC MANAGEMENT
  * 
  * Serveur MCP pour intégration complète avec Zotero
  * Gestion bibliographique, collections, notes et synchronisation
+ * 
+ * NOUVEAU v1.1.0: Ajout des fonctions de lecture des notes
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -67,7 +69,7 @@ class ZoteroMCPServer {
     this.server = new Server(
       {
         name: 'zotero-mcp',
-        version: '1.0.0',
+        version: '1.1.0',
       },
       {
         capabilities: {
@@ -229,6 +231,67 @@ class ZoteroMCPServer {
           },
         },
         {
+          name: 'get_item_with_notes',
+          description: 'Get a Zotero item with all its attached notes',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              itemKey: {
+                type: 'string',
+                description: 'Zotero item key',
+              },
+            },
+            required: ['itemKey'],
+          },
+        },
+        {
+          name: 'get_note_content',
+          description: 'Get the content of a specific note',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              noteKey: {
+                type: 'string',
+                description: 'Zotero note key',
+              },
+            },
+            required: ['noteKey'],
+          },
+        },
+        {
+          name: 'get_item_details',
+          description: 'Get complete details of a Zotero item including all metadata',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              itemKey: {
+                type: 'string',
+                description: 'Zotero item key',
+              },
+              includeNotes: {
+                type: 'boolean',
+                description: 'Include attached notes in the response',
+                default: true,
+              },
+            },
+            required: ['itemKey'],
+          },
+        },
+        {
+          name: 'list_item_children',
+          description: 'List all children (notes, attachments) of a Zotero item',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              itemKey: {
+                type: 'string',
+                description: 'Parent item key',
+              },
+            },
+            required: ['itemKey'],
+          },
+        },
+        {
           name: 'create_collection',
           description: 'Create a new collection in Zotero library',
           inputSchema: {
@@ -370,6 +433,18 @@ class ZoteroMCPServer {
           case 'add_item_to_zotero':
             return await this.addItem(args as any);
 
+          case 'get_item_with_notes':
+            return await this.getItemWithNotes(args as any);
+
+          case 'get_note_content':
+            return await this.getNoteContent(args as any);
+
+          case 'get_item_details':
+            return await this.getItemDetails(args as any);
+
+          case 'list_item_children':
+            return await this.listItemChildren(args as any);
+
           case 'create_collection':
             return await this.createCollection(args as any);
 
@@ -400,6 +475,234 @@ class ZoteroMCPServer {
       }
     });
   }
+
+  // NOUVELLES MÉTHODES POUR LA LECTURE DES NOTES
+
+  private async getItemWithNotes(args: { itemKey: string }): Promise<any> {
+    if (!this.config.apiKey) {
+      throw new Error('Zotero API not configured. Use configure_zotero_access first.');
+    }
+
+    try {
+      // Récupérer l'item principal
+      const itemResponse = await axios.get(
+        `${this.config.baseURL}${this.getLibraryPath()}/items/${args.itemKey}`,
+        { headers: this.getAuthHeaders() }
+      );
+
+      const item = itemResponse.data;
+
+      // Récupérer les enfants (notes et attachments)
+      const childrenResponse = await axios.get(
+        `${this.config.baseURL}${this.getLibraryPath()}/items/${args.itemKey}/children`,
+        { headers: this.getAuthHeaders() }
+      );
+
+      const children = childrenResponse.data;
+      const notes = children.filter((child: any) => child.data.itemType === 'note');
+
+      // Formatter la réponse
+      const result = {
+        item: {
+          key: item.key,
+          title: item.data.title,
+          itemType: item.data.itemType,
+          creators: item.data.creators,
+          date: item.data.date,
+          abstractNote: item.data.abstractNote,
+        },
+        notes: notes.map((note: any) => ({
+          key: note.key,
+          content: note.data.note,
+          dateAdded: note.data.dateAdded,
+          dateModified: note.data.dateModified,
+        })),
+        notesCount: notes.length,
+      };
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: this.createSafeMessage(
+              'Item recupere avec {0} note(s):\n\nTitre: {1}\nType: {2}\n\n',
+              result.notesCount.toString(),
+              result.item.title || 'Sans titre',
+              result.item.itemType
+            ) + (result.notes.length > 0 
+              ? 'Notes:\n' + result.notes.map((note: any, index: number) => 
+                  `\n--- Note ${index + 1} (Key: ${note.key}) ---\n${note.content}`
+                ).join('\n')
+              : 'Aucune note attachée à cet item.'),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Failed to get item with notes: ${errorMessage}`);
+    }
+  }
+
+  private async getNoteContent(args: { noteKey: string }): Promise<any> {
+    if (!this.config.apiKey) {
+      throw new Error('Zotero API not configured. Use configure_zotero_access first.');
+    }
+
+    try {
+      const response = await axios.get(
+        `${this.config.baseURL}${this.getLibraryPath()}/items/${args.noteKey}`,
+        { headers: this.getAuthHeaders() }
+      );
+
+      const note = response.data;
+
+      if (note.data.itemType !== 'note') {
+        throw new Error('The specified key does not correspond to a note');
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: this.createSafeMessage(
+              'Note (Key: {0}):\n\n{1}\n\nDate ajoutee: {2}\nDate modifiee: {3}',
+              args.noteKey,
+              note.data.note || 'Contenu vide',
+              note.data.dateAdded || 'N/A',
+              note.data.dateModified || 'N/A'
+            ),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Failed to get note content: ${errorMessage}`);
+    }
+  }
+
+  private async getItemDetails(args: { itemKey: string; includeNotes?: boolean }): Promise<any> {
+    if (!this.config.apiKey) {
+      throw new Error('Zotero API not configured. Use configure_zotero_access first.');
+    }
+
+    try {
+      const response = await axios.get(
+        `${this.config.baseURL}${this.getLibraryPath()}/items/${args.itemKey}`,
+        { headers: this.getAuthHeaders() }
+      );
+
+      const item = response.data;
+      let notes: any[] = [];
+
+      if (args.includeNotes !== false) {
+        const childrenResponse = await axios.get(
+          `${this.config.baseURL}${this.getLibraryPath()}/items/${args.itemKey}/children`,
+          { headers: this.getAuthHeaders() }
+        );
+        notes = childrenResponse.data.filter((child: any) => child.data.itemType === 'note');
+      }
+
+      const creators = (item.data.creators || [])
+        .map((c: any) => `${c.firstName || ''} ${c.lastName || ''}`.trim())
+        .join(', ');
+
+      const tags = (item.data.tags || []).map((t: any) => t.tag).join(', ');
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: this.createSafeMessage(
+              'Details complets de l\'item (Key: {0}):\n\n' +
+              'Titre: {1}\n' +
+              'Type: {2}\n' +
+              'Auteurs: {3}\n' +
+              'Date: {4}\n' +
+              'Publication: {5}\n' +
+              'DOI: {6}\n' +
+              'URL: {7}\n' +
+              'Tags: {8}\n' +
+              'Abstract: {9}\n' +
+              'Notes attachees: {10}',
+              args.itemKey,
+              item.data.title || 'Sans titre',
+              item.data.itemType,
+              creators || 'N/A',
+              item.data.date || 'N/A',
+              item.data.publicationTitle || 'N/A',
+              item.data.DOI || 'N/A',
+              item.data.url || 'N/A',
+              tags || 'Aucun',
+              item.data.abstractNote || 'N/A',
+              notes.length.toString()
+            ) + (notes.length > 0 
+              ? '\n\n--- Notes ---\n' + notes.map((note: any, index: number) => 
+                  `\nNote ${index + 1} (Key: ${note.key}):\n${note.data.note}`
+                ).join('\n')
+              : ''),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Failed to get item details: ${errorMessage}`);
+    }
+  }
+
+  private async listItemChildren(args: { itemKey: string }): Promise<any> {
+    if (!this.config.apiKey) {
+      throw new Error('Zotero API not configured. Use configure_zotero_access first.');
+    }
+
+    try {
+      const response = await axios.get(
+        `${this.config.baseURL}${this.getLibraryPath()}/items/${args.itemKey}/children`,
+        { headers: this.getAuthHeaders() }
+      );
+
+      const children = response.data;
+      const notes = children.filter((child: any) => child.data.itemType === 'note');
+      const attachments = children.filter((child: any) => child.data.itemType === 'attachment');
+
+      const formattedChildren = [
+        ...notes.map((note: any) => ({
+          key: note.key,
+          type: 'note',
+          title: note.data.note ? note.data.note.substring(0, 100) + '...' : 'Note vide',
+          dateAdded: note.data.dateAdded,
+        })),
+        ...attachments.map((att: any) => ({
+          key: att.key,
+          type: 'attachment',
+          title: att.data.title || att.data.filename || 'Sans titre',
+          contentType: att.data.contentType,
+        })),
+      ];
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: this.createSafeMessage(
+              'Enfants de l\'item {0}:\n' +
+              'Notes: {1}\n' +
+              'Attachments: {2}\n\n',
+              args.itemKey,
+              notes.length.toString(),
+              attachments.length.toString()
+            ) + formattedChildren.map((child: any, index: number) => 
+              `${index + 1}. [${child.type.toUpperCase()}] ${child.title} (Key: ${child.key})`
+            ).join('\n'),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Failed to list item children: ${errorMessage}`);
+    }
+  }
+
+  // MÉTHODES EXISTANTES (non modifiées)
 
   private async configureAccess(args: { userID: string; apiKey: string; groupID?: string }) {
     this.config.userID = args.userID;
@@ -799,7 +1102,7 @@ class ZoteroMCPServer {
           {
             type: 'text',
             text: this.createSafeMessage(
-              'Statut Zotero: CONNECTE\nUser ID: {0}\nTotal items: {1}\nAPI Key: Configure\nConnexion: Operationnelle',
+              'Statut Zotero: CONNECTE\nUser ID: {0}\nTotal items: {1}\nAPI Key: Configure\nConnexion: Operationnelle\nVersion MCP: 1.1.0 (avec lecture notes)',
               this.config.userID || 'N/A',
               totalItems
             ),
@@ -824,7 +1127,7 @@ class ZoteroMCPServer {
   async run(): Promise<void> {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error('Zotero MCP server running on stdio');
+    console.error('Zotero MCP server v1.1.0 running on stdio - Now with note reading capabilities!');
   }
 }
 

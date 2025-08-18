@@ -2,9 +2,9 @@
 
 Workspace de développement pour connecteurs MCP (Model Context Protocol) personnalisés. Écosystème complet pour recherche académique, gestion bibliographique et analyse stratégique avec dashboard de visualisation.
 
-## Architecture Resiliente V3.3.2
+## Architecture Resiliente V3.3.3
 
-**NOUVEAU** : Architecture résistante aux mises à jour Claude Desktop avec forçage de chemin intégré et dashboard autonome Electron/React.
+**NOUVEAU** : Zotero MCP v1.1.0 avec lecture complète des notes. Architecture résistante aux mises à jour Claude Desktop avec forçage de chemin intégré et dashboard autonome Electron/React.
 
 ## Structure du Projet
 
@@ -15,7 +15,7 @@ mcp-workspace/
 ├── linkedin-strategic/        # Analyse écosystème financement européen
 ├── project-context-manager/   # Gestionnaire de contexte (RÉSILIENT)
 ├── context-dashboard-v2/      # Dashboard Electron/React autonome
-├── zotero-mcp/               # Intégration Zotero bibliographique
+├── zotero-mcp/               # Intégration Zotero bibliographique v1.1.0
 ├── github/                   # Intégration GitHub (si configuré)
 ├── config-files/             # Configurations Claude Desktop
 └── scripts/                  # Scripts de démarrage et maintenance
@@ -26,7 +26,21 @@ mcp-workspace/
 ### **Recherche Académique**
 - **arXiv Server** : Recherche directe dans les archives arXiv
 - **HAL-MCP** : Accès aux archives ouvertes françaises (116,942+ documents)
-- **Zotero-MCP** : Gestion bibliographique complète
+- **Zotero-MCP v1.1.0** : Gestion bibliographique complète avec lecture des notes
+  - **NOUVEAU** : Lecture complète des notes attachées aux items
+  - **NOUVEAU** : Récupération du contenu des highlights/annotations
+  - **NOUVEAU** : Support complet des exports AllamBik (228+ highlights testés)
+  - **Fonctions de lecture ajoutées** :
+    - `get_item_with_notes` : Récupère un item avec toutes ses notes attachées
+    - `get_note_content` : Lit le contenu d'une note spécifique par sa clé
+    - `get_item_details` : Obtient les détails complets d'un item avec notes optionnelles
+    - `list_item_children` : Liste toutes les notes et attachments d'un item
+  - **Fonctions existantes** :
+    - Configuration et authentification API Zotero
+    - Ajout/gestion d'items, collections, notes
+    - Recherche dans la bibliothèque
+    - Import direct depuis arXiv
+    - Export bibliographique multi-format (APA, MLA, Chicago, BibTeX)
 
 ### **Analyse Stratégique** 
 - **LinkedIn Strategic** : Analyse écosystème financement européen CRAFT
@@ -80,7 +94,7 @@ mcp-workspace/
     },
     "zotero-mcp": {
       "command": "node",
-      "args": ["C:/Users/DAVE666/mcp-workspace/zotero-mcp/server.js"]
+      "args": ["C:/Users/DAVE666/mcp-workspace/zotero-mcp/build/index.js"]
     },
     "linkedin-strategic": {
       "command": "node",
@@ -143,7 +157,7 @@ context-dashboard-v2/
 | **Intégration MCP Claude** | TypeScript, Node.js, WebSocket | Initial-setup | 18+ |
 | **AllamBik** | Python, Kindle, Text Processing | Production-ready | 7+ |
 | **Logiciel masque sablage verre** | Blender, Python, SVG, 3D→2D | Initial-setup | 5+ |
-| **Zotero** | Zotero API, Bibliography Management | Initial-setup | 8+ |
+| **Zotero** | Zotero API, Bibliography Management | Production | 9+ |
 | **Budget retraite** | Épargne, Investissement, Fiscalité | Initial-setup | 6+ |
 
 ## Fonctionnalités Sécurisées
@@ -186,7 +200,7 @@ cd project-context-manager && npm install && npm run build && cd ..
 # Connecteurs de recherche
 cd arxiv-server && npm install && cd ..
 cd hal-mcp && npm install && cd ..
-cd zotero-mcp && npm install && cd ..
+cd zotero-mcp && npm install && npx tsc && cd ..
 
 # Analyse stratégique
 cd linkedin-strategic && npm install && cd ..
@@ -284,11 +298,23 @@ scripts/clean-logs.bat
 - Electron doit être dans `devDependencies`
 - Vérifier l'encodage UTF-8 sans BOM de package.json
 
+### Zotero MCP - Lecture des notes
+- Si les notes ne sont pas lues, vérifier la compilation TypeScript avec `npx tsc`
+- Le fichier compilé doit être dans `zotero-mcp/build/index.js`
+- Redémarrer Claude Desktop après modification
+
 ## Contribution
 
 Les contributions sont les bienvenues ! Consultez le guide de contribution dans `CONTRIBUTING.md`.
 
 ## Changelog
+
+### v3.3.3 + Zotero v1.1.0 (Août 2025)
+- **NEW** : Zotero MCP v1.1.0 - Ajout lecture complète des notes
+- **NEW** : Support des exports AllamBik dans Zotero (228+ highlights)
+- **NEW** : Fonctions get_item_with_notes, get_note_content, get_item_details, list_item_children
+- **FIX** : Résolution asymétrie lecture/écriture des notes Zotero
+- **TEST** : Validation complète sur corpus Stiegler "L'emploi est mort, vive le travail !"
 
 ### v3.3.2 + Dashboard v1.0.0 (Janvier 2025)
 - **NEW** : Dashboard Electron/React autonome
@@ -320,4 +346,4 @@ MIT License - Voir `LICENSE` pour plus de détails.
 
 **Maintenu par** : David Arnaud (@HelloDave666)
 
-**Dernière mise à jour** : Janvier 2025 - v3.3.2 avec Dashboard v1.0.0
+**Dernière mise à jour** : Août 2025 - v3.3.3 avec Zotero MCP v1.1.0

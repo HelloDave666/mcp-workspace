@@ -1,29 +1,29 @@
-{
-  "name": "zotero-mcp-server",
-  "version": "1.0.0",
-  "description": "MCP Server for Zotero bibliographic management integration",
-  "main": "build/index.js",
-  "type": "module",
-  "scripts": {
-    "build": "tsc",
-    "start": "node build/index.js",
-    "dev": "tsc && node build/index.js"
-  },
-  "keywords": [
-    "mcp",
-    "zotero",
-    "bibliographie",
-    "recherche",
-    "academique"
-  ],
-  "author": "David Arnaud",
-  "license": "MIT",
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.5.0",
-    "axios": "^1.6.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0"
-  }
+﻿{
+    "name":  "zotero-mcp-server",
+    "version":  "1.1.0",
+    "description":  "MCP Server for Zotero bibliographic management integration",
+    "main":  "build/index.js",
+    "type":  "module",
+    "scripts":  {
+                    "build":  "tsc",
+                    "start":  "node build/index.js",
+                    "dev":  "tsc \u0026\u0026 node build/index.js"
+                },
+    "keywords":  [
+                     "mcp",
+                     "zotero",
+                     "bibliographie",
+                     "recherche",
+                     "academique"
+                 ],
+    "author":  "David Arnaud",
+    "license":  "MIT",
+    "dependencies":  {
+                         "@modelcontextprotocol/sdk":  "^0.5.0",
+                         "axios":  "^1.6.0"
+                     },
+    "devDependencies":  {
+                            "@types/node":  "^20.0.0",
+                            "typescript":  "^5.0.0"
+                        }
 }
