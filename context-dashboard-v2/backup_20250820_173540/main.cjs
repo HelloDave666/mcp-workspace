@@ -1,7 +1,6 @@
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs-extra')
-const AutoLaunch = require('auto-launch')
 
 // Configuration
 const isDev = process.env.NODE_ENV === 'development'
@@ -9,265 +8,6 @@ const DATA_PATH = 'C:\\Users\\DAVE666\\ClaudeContextManager'
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true'
 
 let mainWindow
-let tray = null
-let isQuitting = false
-
-// Configuration auto-démarrage Windows
-const autoLauncher = new AutoLaunch({
-  name: 'Context Manager Dashboard',
-  path: app.getPath('exe'),
-  isHidden: true
-})
-
-// Fonction pour créer le system tray
-function createTray() {
-  const iconPath = isDev 
-    ? path.join(__dirname, '../public/icon.png')  
-    : path.join(process.resourcesPath, 'icon.png')
-  
-  let trayIcon
-  if (fs.existsSync(iconPath)) {
-    trayIcon = nativeImage.createFromPath(iconPath)
-  } else {
-    trayIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==')
-  }
-  
-  tray = new Tray(trayIcon)
-  tray.setToolTip('Context Manager Dashboard - Cliquez pour ouvrir')
-  
-  const getStats = async () => {
-    try {
-      const projectsFile = path.join(DATA_PATH, 'projects.json')
-      if (await fs.pathExists(projectsFile)) {
-        const data = await fs.readJson(projectsFile)
-        return {
-          projects: data.projects?.length || 0,
-          conversations: data.conversations?.length || 0
-        }
-      }
-    } catch (error) {
-      console.error('Erreur récupération stats:', error)
-    }
-    return { projects: 0, conversations: 0 }
-  }
-  
-  const updateContextMenu = async () => {
-    const stats = await getStats()
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: '📊 Context Manager Dashboard',
-        enabled: false
-      },
-      { type: 'separator' },
-      {
-        label: '📈 Statistiques',
-        submenu: [
-          { 
-            label: `Projets actifs: ${stats.projects}`,
-            enabled: false
-          },
-          { 
-            label: `Conversations archivées: ${stats.conversations}`,
-            enabled: false
-          },
-          { type: 'separator' },
-          { 
-            label: '📂 Ouvrir le dossier de données',
-            click: () => shell.openPath(DATA_PATH)
-          }
-        ]
-      },
-      {
-        label: '🔍 Vue rapide',
-        click: () => showQuickView(stats)
-      },
-      { type: 'separator' },
-      {
-        label: '💾 Créer une sauvegarde',
-        click: async () => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('trigger-backup')
-          }
-        }
-      },
-      {
-        label: '🔄 Rafraîchir',
-        click: () => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('refresh-data')
-          }
-          updateContextMenu()
-        }
-      },
-      { type: 'separator' },
-      {
-        label: '⚙️ Démarrage automatique',
-        type: 'checkbox',
-        checked: await autoLauncher.isEnabled(),
-        click: async (menuItem) => {
-          if (menuItem.checked) {
-            await autoLauncher.enable()
-          } else {
-            await autoLauncher.disable()
-          }
-        }
-      },
-      { type: 'separator' },
-      {
-        label: mainWindow && mainWindow.isVisible() ? '➖ Réduire' : '🚀 Ouvrir Dashboard',
-        click: () => {
-          if (mainWindow.isVisible()) {
-            mainWindow.hide()
-          } else {
-            mainWindow.show()
-            if (!isDev) {
-              mainWindow.maximize()
-            }
-          }
-          updateContextMenu()
-        }
-      },
-      {
-        label: '❌ Quitter',
-        click: () => {
-          isQuitting = true
-          app.quit()
-        }
-      }
-    ])
-    
-    tray.setContextMenu(contextMenu)
-  }
-  
-  updateContextMenu()
-  
-  tray.on('click', () => {
-    if (mainWindow.isVisible()) {
-      mainWindow.hide()
-    } else {
-      mainWindow.show()
-      if (!isDev) {
-        mainWindow.maximize()
-      }
-    }
-    updateContextMenu()
-  })
-  
-  tray.on('double-click', async () => {
-    const stats = await getStats()
-    showQuickView(stats)
-  })
-  
-  setInterval(updateContextMenu, 30000)
-}
-
-function showQuickView(stats) {
-  const quickView = new BrowserWindow({
-    width: 400,
-    height: 350,
-    resizable: false,
-    frame: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
-    }
-  })
-  
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <title>Vue Rapide</title>
-      <style>
-        body {
-          margin: 0;
-          padding: 20px;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          user-select: none;
-          cursor: default;
-        }
-        .header {
-          font-size: 20px;
-          font-weight: bold;
-          margin-bottom: 25px;
-          text-align: center;
-          text-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        }
-        .stat-card {
-          background: rgba(255,255,255,0.15);
-          backdrop-filter: blur(10px);
-          padding: 20px;
-          margin: 15px 0;
-          border-radius: 12px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          transition: all 0.3s ease;
-        }
-        .stat-card:hover {
-          background: rgba(255,255,255,0.25);
-          transform: translateX(5px);
-        }
-        .stat-label {
-          font-size: 16px;
-          opacity: 0.95;
-        }
-        .stat-value {
-          font-size: 28px;
-          font-weight: bold;
-        }
-        .close-hint {
-          position: absolute;
-          bottom: 10px;
-          right: 10px;
-          font-size: 11px;
-          opacity: 0.6;
-          font-style: italic;
-        }
-        .storage-path {
-          margin-top: 20px;
-          padding: 10px;
-          background: rgba(0,0,0,0.2);
-          border-radius: 8px;
-          font-size: 12px;
-          text-align: center;
-          opacity: 0.8;
-        }
-      </style>
-    </head>
-    <body onclick="window.close()">
-      <div class="header">📊 Context Manager Dashboard</div>
-      <div class="stat-card">
-        <div class="stat-label">📁 Projets Actifs</div>
-        <div class="stat-value">${stats.projects}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">💬 Conversations</div>
-        <div class="stat-value">${stats.conversations}</div>
-      </div>
-      <div class="storage-path">📂 ${DATA_PATH}</div>
-      <div class="close-hint">Cliquez pour fermer</div>
-    </body>
-    </html>
-  `
-  
-  quickView.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-  
-  setTimeout(() => {
-    if (!quickView.isDestroyed()) {
-      quickView.close()
-    }
-  }, 10000)
-  
-  quickView.on('blur', () => {
-    quickView.close()
-  })
-}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -275,7 +15,6 @@ function createWindow() {
     height: 900,
     minWidth: 1200,
     minHeight: 700,
-    show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -283,41 +22,26 @@ function createWindow() {
       webSecurity: isDev ? false : true,
       preload: path.join(__dirname, 'preload.cjs')
     },
-    titleBarStyle: 'default',
-    icon: path.join(__dirname, '../public/icon.png')
+    show: false,
+    titleBarStyle: 'default'
   })
 
+  // Charger l'application
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
+    // En production, charger depuis le bon chemin
     const indexPath = path.join(__dirname, '../dist/index.html')
     mainWindow.loadFile(indexPath)
+    // DevTools dÃ©sactivÃ©s en production
   }
 
-  mainWindow.on('close', (event) => {
-    if (!isQuitting) {
-      event.preventDefault()
-      mainWindow.hide()
-      
-      if (tray && !app.getLoginItemSettings().wasOpenedAtLogin) {
-        tray.displayBalloon({
-          title: 'Context Manager Dashboard',
-          content: 'L\'application continue de fonctionner en arrière-plan.'
-        })
-      }
-      return false
-    }
-  })
-
   mainWindow.once('ready-to-show', () => {
-    if (app.getLoginItemSettings().wasOpenedAtLogin) {
-      console.log('Démarré avec Windows - reste dans le tray')
-    } else {
-      mainWindow.show()
-    }
+    mainWindow.show()
   })
 
+  // Raccourci F12 pour ouvrir/fermer DevTools
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.key === 'F12') {
       mainWindow.webContents.toggleDevTools()
@@ -330,16 +54,17 @@ function createWindow() {
   })
 }
 
-// ========== VOS IPC HANDLERS EXISTANTS (CONSERVÉS) ==========
-
+// IPC Handlers pour communication avec React
 ipcMain.handle('get-projects', async () => {
   try {
     const projectsFile = path.join(DATA_PATH, 'projects.json')
     if (await fs.pathExists(projectsFile)) {
       const data = await fs.readJson(projectsFile)
       
+      // Mapper les conversations pour ajouter archive_type
       if (data.conversations && Array.isArray(data.conversations)) {
         data.conversations = data.conversations.map(conv => {
+          // Parser le type d'archivage - PrioritÃ© au champ archiveType
           if (conv.archiveType === 'full') {
             conv.archive_type = 'full'
           } else if (conv.archiveType === 'summary') {
@@ -350,6 +75,7 @@ ipcMain.handle('get-projects', async () => {
             conv.archive_type = 'summary'
           }
           
+          // Nettoyer le summary pour l'affichage
           conv.display_summary = conv.summary ? conv.summary.replace(/\s*\[(full|summary)\]\s*/gi, '') : ''
           
           return conv
@@ -365,6 +91,8 @@ ipcMain.handle('get-projects', async () => {
   }
 })
 
+
+// Handler pour analyser la structure des conversations
 ipcMain.handle('analyze-conversations', async () => {
   try {
     const projectsFile = path.join(DATA_PATH, 'projects.json')
@@ -418,13 +146,12 @@ ipcMain.handle('analyze-conversations', async () => {
       
       return analysis
     }
-    return { error: 'Fichier non trouvé' }
+    return { error: 'Fichier non trouvÃ©' }
   } catch (error) {
     console.error('Erreur analyse:', error)
     return { error: error.message }
   }
 })
-
 ipcMain.handle('get-storage-health', async () => {
   try {
     const projectsFile = path.join(DATA_PATH, 'projects.json')
@@ -457,7 +184,7 @@ ipcMain.handle('get-storage-health', async () => {
       lastModified: await getLastModified(projectsFile)
     }
   } catch (error) {
-    console.error('Erreur analyse santé:', error)
+    console.error('Erreur analyse santÃ©:', error)
     return {
       mainStorage: false,
       totalSize: '0 B',
@@ -468,12 +195,14 @@ ipcMain.handle('get-storage-health', async () => {
   }
 })
 
+// Handler pour renommer un projet
 ipcMain.handle('rename-project', async (event, projectId, newName, newDescription) => {
   try {
     const projectsFile = path.join(DATA_PATH, 'projects.json')
     if (await fs.pathExists(projectsFile)) {
       const data = await fs.readJson(projectsFile)
       
+      // Trouver et modifier le projet
       const project = data.projects.find(p => p.id === projectId)
       if (project) {
         project.name = newName
@@ -481,17 +210,19 @@ ipcMain.handle('rename-project', async (event, projectId, newName, newDescriptio
           project.description = newDescription
         }
         
+        // Sauvegarder les modifications
         await fs.writeJson(projectsFile, data, { spaces: 2 })
         return { success: true, project }
       }
     }
-    return { success: false, error: 'Projet non trouvé' }
+    return { success: false, error: 'Projet non trouvÃ©' }
   } catch (error) {
     console.error('Erreur renommage projet:', error)
     return { success: false, error: error.message }
   }
 })
 
+// Handler pour crÃ©er un backup manuel
 ipcMain.handle('create-backup', async () => {
   try {
     const now = new Date()
@@ -502,18 +233,21 @@ ipcMain.handle('create-backup', async () => {
     const backupDir = path.join(DATA_PATH, 'manual_backups')
     await fs.ensureDir(backupDir)
     
+    // Sauvegarder projects.json
     const projectsFile = path.join(DATA_PATH, 'projects.json')
     const backupFile = path.join(backupDir, 'backup_manual_' + timestamp + '.json')
     
     if (await fs.pathExists(projectsFile)) {
       await fs.copy(projectsFile, backupFile)
       
+      // Sauvegarder aussi le mapping des conversations
       const mappingFile = path.join(DATA_PATH, 'conversation_id_mapping.json')
       if (await fs.pathExists(mappingFile)) {
         const mappingBackup = path.join(backupDir, 'mapping_manual_' + timestamp + '.json')
         await fs.copy(mappingFile, mappingBackup)
       }
       
+      // Compter les fichiers de backup
       const backups = await fs.readdir(backupDir)
       const manualBackups = backups.filter(f => f.startsWith('backup_manual_'))
       
@@ -524,17 +258,19 @@ ipcMain.handle('create-backup', async () => {
         totalBackups: manualBackups.length
       }
     }
-    return { success: false, error: 'Fichier projects.json non trouvé' }
+    return { success: false, error: 'Fichier projects.json non trouvÃ©' }
   } catch (error) {
-    console.error('Erreur création backup:', error)
+    console.error('Erreur crÃ©ation backup:', error)
     return { success: false, error: error.message }
   }
 })
 
+// Handler pour exporter un backup vers un dossier choisi
 ipcMain.handle('export-backup', async () => {
   try {
     const dateStr = new Date().toISOString().split('T')[0]
     
+    // Demander oÃ¹ sauvegarder
     const result = await dialog.showSaveDialog(mainWindow, {
       title: 'Exporter la sauvegarde',
       defaultPath: 'context-manager-backup-' + dateStr + '.json',
@@ -548,9 +284,11 @@ ipcMain.handle('export-backup', async () => {
       const projectsFile = path.join(DATA_PATH, 'projects.json')
       await fs.copy(projectsFile, result.filePath)
       
+      // CrÃ©er aussi un dossier avec toutes les donnÃ©es
       const exportDir = result.filePath.replace('.json', '_complete')
       await fs.ensureDir(exportDir)
       
+      // Copier tout le contenu
       await fs.copy(DATA_PATH, exportDir, {
         filter: (src) => !src.includes('node_modules')
       })
@@ -561,14 +299,17 @@ ipcMain.handle('export-backup', async () => {
         completePath: exportDir
       }
     }
-    return { success: false, error: 'Export annulé' }
+    return { success: false, error: 'Export annulÃ©' }
   } catch (error) {
     console.error('Erreur export backup:', error)
     return { success: false, error: error.message }
   }
 })
 
+
+// Handler pour ouvrir un dossier dans l'explorateur
 ipcMain.handle('open-folder', async (event, folderPath) => {
+  const { shell } = require('electron')
   try {
     await shell.openPath(folderPath)
     return { success: true }
@@ -578,8 +319,7 @@ ipcMain.handle('open-folder', async (event, folderPath) => {
   }
 })
 
-// ========== FONCTIONS UTILITAIRES ==========
-
+// Utilitaires
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B'
   const k = 1024
@@ -600,38 +340,13 @@ async function getLastModified(filePath) {
   }
 }
 
-// ========== EVENTS ELECTRON ==========
+// Events Electron
+app.whenReady().then(createWindow)
 
-app.whenReady().then(async () => {
-  createWindow()
-  createTray()
-  
-  const isFirstRun = !await fs.pathExists(path.join(DATA_PATH, '.configured'))
-  if (isFirstRun) {
-    const { dialog } = require('electron')
-    const result = await dialog.showMessageBox(mainWindow, {
-      type: 'question',
-      buttons: ['Oui', 'Non'],
-      defaultId: 0,
-      title: 'Démarrage automatique',
-      message: 'Voulez-vous que Context Manager Dashboard se lance automatiquement au démarrage de Windows ?',
-      detail: 'Vous pourrez changer ce paramètre plus tard via l\'icône dans la barre des tâches.'
-    })
-    
-    if (result.response === 0) {
-      await autoLauncher.enable()
-    }
-    
-    await fs.writeFile(path.join(DATA_PATH, '.configured'), '')
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit()
   }
-})
-
-app.on('window-all-closed', (event) => {
-  event.preventDefault()
-})
-
-app.on('before-quit', () => {
-  isQuitting = true
 })
 
 app.on('activate', () => {
@@ -639,3 +354,10 @@ app.on('activate', () => {
     createWindow()
   }
 })
+
+
+
+
+
+
+
