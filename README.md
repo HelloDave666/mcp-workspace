@@ -1,13 +1,12 @@
 # MCP Workspace
 
-Workspace de développement pour connecteurs MCP (Model Context Protocol) personnalisés. Écosystème complet pour recherche académique, gestion bibliographique et analyse stratégique avec dashboard de visualisation **maintenant équipé d'un system tray Windows**.
+Workspace de développement pour connecteurs MCP (Model Context Protocol) personnalisés. Écosystème complet pour recherche académique, gestion bibliographique et analyse stratégique avec dashboard de visualisation maintenant équipé d'un system tray Windows.
 
 ## Architecture Resiliente V3.3.4
 
-**NOUVEAU** : Context Dashboard v2.0 avec system tray Windows complet, démarrage automatique et fonctionnement en arrière-plan. Architecture résistante aux mises à jour Claude Desktop avec forçage de chemin intégré.
+NOUVEAU : Context Dashboard v2.0 avec system tray Windows complet, démarrage automatique et fonctionnement en arrière-plan. Architecture résistante aux mises à jour Claude Desktop avec forçage de chemin intégré.
 
 ## Structure du Projet
-
 ```
 mcp-workspace/
 ├── arxiv-server/              # Connecteur arXiv pour recherche académique
@@ -23,7 +22,7 @@ mcp-workspace/
 
 ## Connecteurs MCP Disponibles
 
-### **Recherche Académique**
+### Recherche Académique
 - **arXiv Server** : Recherche directe dans les archives arXiv
 - **HAL-MCP** : Accès aux archives ouvertes françaises (116,942+ documents)
 - **Zotero-MCP v1.1.0** : Gestion bibliographique complète avec lecture des notes
@@ -35,20 +34,20 @@ mcp-workspace/
   - Import direct depuis arXiv
   - Export bibliographique multi-format
 
-### **Analyse Stratégique** 
+### Analyse Stratégique
 - **LinkedIn Strategic** : Analyse écosystème financement européen CRAFT
 - **GitHub** : Gestion repositories et code
 
-### **Gestion de Projet**
+### Gestion de Projet
 - **Project Context Manager V3.3.2** : Archivage conversations et contexte
   - Stockage centralisé résistant : `C:\Users\DAVE666\ClaudeContextManager`
-  - **228 conversations archivées** sur 6 projets
+  - 228 conversations archivées sur 6 projets
   - Sauvegarde automatique (10 backups rotatifs)
   - Règles d'archivage : Full (15k car) / Summary (4k car)
 
-### **Dashboard de Visualisation v2.0** 🆕
+### Dashboard de Visualisation v2.1
 - **Context Manager Dashboard** : Application Windows autonome avec system tray
-  - **NOUVEAU : System Tray Windows**
+  - NOUVEAU : System Tray Windows
     - Icône permanente dans la barre des tâches
     - Menu contextuel avec statistiques temps réel
     - Vue rapide au double-clic
@@ -71,7 +70,6 @@ mcp-workspace/
 - Accès API (Zotero, LinkedIn, etc.)
 
 ### Configuration Claude Desktop
-
 ```json
 {
   "mcpServers": {
@@ -103,7 +101,7 @@ mcp-workspace/
 }
 ```
 
-## Context Manager Dashboard v2.0
+## Context Manager Dashboard v2.1
 
 ### Installation Rapide
 
@@ -122,7 +120,7 @@ npm run dev-all          # Mode développement
 npm run dist-win         # Créer l'installateur avec system tray
 ```
 
-### Fonctionnalités Dashboard v2.0
+### Fonctionnalités Dashboard v2.1
 
 #### Interface Principale
 - **Vue d'ensemble** : Métriques en temps réel (projets, conversations, stockage)
@@ -131,16 +129,16 @@ npm run dist-win         # Créer l'installateur avec system tray
 - **Backup système** : Backup local, export complet, ouverture dossier
 - **Analyse debug** : Statistiques détaillées des archives
 
-#### System Tray (NOUVEAU) 🆕
+#### System Tray (NOUVEAU)
 - **Icône système** : Présence permanente dans la barre des tâches Windows
 - **Menu contextuel** (clic droit) :
-  - 📈 Statistiques en temps réel
-  - 🔍 Vue rapide des métriques
-  - 💾 Création de sauvegarde
-  - 🔄 Rafraîchissement des données
-  - ⚙️ Démarrage automatique (on/off)
-  - 📂 Ouvrir le dossier de données
-  - ❌ Quitter l'application
+  - Statistiques en temps réel
+  - Vue rapide des métriques
+  - Création de sauvegarde
+  - Rafraîchissement des données
+  - Démarrage automatique (on/off)
+  - Ouvrir le dossier de données
+  - Quitter l'application
 - **Vue rapide** (double-clic) : Fenêtre flottante avec stats
 - **Comportements** :
   - Clic simple : Ouvre/ferme le dashboard
@@ -149,7 +147,6 @@ npm run dist-win         # Créer l'installateur avec system tray
 - **Mise à jour auto** : Stats rafraîchies toutes les 30 secondes
 
 ### Architecture Technique Dashboard
-
 ```
 context-dashboard-v2/
 ├── electron/           # Backend Electron avec system tray
@@ -190,13 +187,14 @@ context-dashboard-v2/
 - **Migration automatique** données legacy
 - **Anti-duplication** lors d'archivages multiples
 
-### Dashboard Sécurité v2.0
+### Dashboard Sécurité v2.1
 - **Lecture seule** par défaut (édition limitée aux noms/descriptions)
 - **IDs jamais modifiés** pour préserver l'intégrité
 - **Backup avant édition** automatique
 - **Export complet** possible à tout moment
 - **Mode debug** avec F12 pour diagnostic
 - **Auto-launch sécurisé** : Demande permission au premier lancement
+- **Protection contre double lancement** : Nettoyage automatique du registre
 
 ### Sécurité des Données
 - **Stockage centralisé** : `C:\Users\DAVE666\ClaudeContextManager`
@@ -309,8 +307,8 @@ scripts/clean-logs.bat
 ## Roadmap
 
 ### Version 3.4.0 (En cours)
-- ~~System tray Windows complet~~ ✅ FAIT
-- ~~Démarrage automatique configurable~~ ✅ FAIT
+- System tray Windows complet [FAIT]
+- Démarrage automatique configurable [FAIT]
 - Export automatique vers Obsidian
 - Intégration Notion API
 - Analytics avancées des conversations
@@ -363,11 +361,69 @@ scripts/clean-logs.bat
 - Le fichier compilé doit être dans `zotero-mcp/build/index.js`
 - Redémarrer Claude Desktop après modification
 
+### Fenêtre Electron vide au démarrage
+- Vérifier qu'aucune entrée "electron" existe dans le registre Windows
+- Ouvrir `regedit` et aller à : `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`
+- Supprimer toute entrée "electron" pointant vers `node_modules\electron\dist\electron.exe`
+- Le dashboard inclut maintenant un nettoyage automatique de ces entrées
+
+## Corrections & Problèmes Résolus
+
+### Version 2.1.0 - Octobre 2024
+
+#### Fix : Fenêtre Electron vide au démarrage Windows
+
+**Problème** : Une fenêtre Electron vide s'ouvrait systématiquement au démarrage de Windows en parallèle du Context Manager Dashboard. Cette fenêtre affichait le logo Electron et un chemin de ligne de commande vers `node_modules\electron\dist\electron.exe`.
+
+**Cause** : 
+- Entrée incorrecte dans le registre Windows créée par `auto-launch`
+- L'entrée "electron" pointait vers `node_modules\electron\dist\electron.exe` au lieu de l'application compilée
+- L'auto-launch s'activait également en mode développement
+
+**Solution implémentée** :
+1. **Désactivation auto-launch en mode développement** : `autoLauncher` défini à `null` quand `isDev = true`
+2. **Nettoyage automatique du registre** : Suppression de l'entrée "electron" au démarrage de l'application
+3. **Protection contre null** : Vérifications ajoutées avant chaque appel à `autoLauncher`
+4. **Changement isHidden** : `false` au lieu de `true` pour meilleure compatibilité Windows
+5. **Fenêtre cachée au démarrage** : En production, la fenêtre reste dans le tray uniquement
+
+**Comportement actuel** :
+- **Mode production** : Dashboard caché au démarrage, accessible uniquement via l'icône tray
+- **Mode développement** : Fenêtre visible pour faciliter le debug, auto-launch désactivé
+- **System Tray** : Fonctionne normalement avec menu contextuel complet
+- **Nettoyage automatique** : L'entrée "electron" est supprimée si elle existe au démarrage
+
+**Fichiers modifiés** :
+- `context-dashboard-v2/electron/main.cjs` (lignes 17-28, 112-122, 348-358, 648)
+
+**Test de validation** :
+1. Suppression manuelle de l'entrée "electron" dans le registre Windows
+2. Rebuild de l'application : `npm run build`
+3. Redémarrage Windows
+4. Vérification : Aucune fenêtre Electron vide, seul le tray apparaît
+5. Dashboard s'ouvre uniquement sur clic de l'icône tray
+
+**Pour les utilisateurs** :
+Si vous rencontrez ce problème avec une version antérieure :
+1. Ouvrir `regedit`
+2. Naviguer vers : `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`
+3. Supprimer l'entrée "electron" si elle existe
+4. Mettre à jour vers la version 2.1.0 ou supérieure
+5. Redémarrer Windows
+
 ## Contribution
 
 Les contributions sont les bienvenues ! Consultez le guide de contribution dans `CONTRIBUTING.md`.
 
 ## Changelog
+
+### v2.1.0 Dashboard (Octobre 2024)
+- **FIX** : Suppression fenêtre Electron vide au démarrage Windows
+- **FIX** : Désactivation auto-launch en mode développement
+- **FIX** : Nettoyage automatique entrée "electron" du registre
+- **FIX** : Protection contre null sur autoLauncher
+- **UPDATE** : Fenêtre reste cachée au démarrage en production
+- **UPDATE** : isHidden changé de true à false pour compatibilité
 
 ### v3.3.4 + Dashboard v2.0 (Août 2025)
 - **NEW** : System tray Windows complet pour le dashboard
@@ -414,4 +470,4 @@ MIT License - Voir `LICENSE` pour plus de détails.
 
 **Maintenu par** : David Arnaud (@HelloDave666)
 
-**Dernière mise à jour** : Août 2025 - v3.3.4 avec Dashboard v2.0 (System Tray)
+**Dernière mise à jour** : Octobre 2024 - v2.1.0 Dashboard (Fix fenêtre Electron)

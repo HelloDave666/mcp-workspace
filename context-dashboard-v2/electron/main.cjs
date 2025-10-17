@@ -13,11 +13,22 @@ let tray = null
 let isQuitting = false
 
 // Configuration auto-démarrage Windows
-const autoLauncher = new AutoLaunch({
+// ✅ Ne pas utiliser auto-launch en mode développement
+const autoLauncher = isDev ? null : new AutoLaunch({
   name: 'Context Manager Dashboard',
   path: app.getPath('exe'),
-  isHidden: true
+  isHidden: false  // Changé de true à false pour meilleure compatibilité
 })
+
+// ✅ Nettoyage automatique de l'entrée "electron" au démarrage
+if (!isDev) {
+  const { exec } = require('child_process')
+  exec('reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v electron /f', (error) => {
+    if (!error) {
+      console.log('🧹 Entrée electron.exe nettoyée du registre')
+    }
+  })
+}
 
 // Fonction pour créer le system tray
 function createTray() {
@@ -103,12 +114,14 @@ function createTray() {
       {
         label: '⚙️ Démarrage automatique',
         type: 'checkbox',
-        checked: await autoLauncher.isEnabled(),
+        checked: autoLauncher ? await autoLauncher.isEnabled() : false,  // ✅ Vérification ajoutée
         click: async (menuItem) => {
-          if (menuItem.checked) {
-            await autoLauncher.enable()
-          } else {
-            await autoLauncher.disable()
+          if (autoLauncher) {  // ✅ Vérification ajoutée
+            if (menuItem.checked) {
+              await autoLauncher.enable()
+            } else {
+              await autoLauncher.disable()
+            }
           }
         }
       },
@@ -310,11 +323,15 @@ function createWindow() {
     }
   })
 
+  // ✅ CORRECTION : La fenêtre reste cachée au démarrage en production
   mainWindow.once('ready-to-show', () => {
-    if (app.getLoginItemSettings().wasOpenedAtLogin) {
-      console.log('Démarré avec Windows - reste dans le tray')
-    } else {
+    if (isDev) {
+      // En mode développement, afficher la fenêtre pour faciliter le debug
       mainWindow.show()
+    } else {
+      // En production, la fenêtre reste cachée au démarrage
+      // L'utilisateur peut l'ouvrir via le clic sur l'icône du tray
+      console.log('Dashboard prêt - reste dans le tray. Cliquez sur l\'icône pour ouvrir.')
     }
   })
 
@@ -607,7 +624,7 @@ app.whenReady().then(async () => {
   createTray()
   
   const isFirstRun = !await fs.pathExists(path.join(DATA_PATH, '.configured'))
-  if (isFirstRun) {
+  if (isFirstRun && autoLauncher) {  // ✅ Vérification ajoutée
     const { dialog } = require('electron')
     const result = await dialog.showMessageBox(mainWindow, {
       type: 'question',
